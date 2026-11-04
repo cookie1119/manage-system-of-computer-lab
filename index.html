@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>机房课堂管理系统</title>
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="logo">IT</span><span class="brand-text">机房课堂管理</span></div>
+  <nav class="tabs" id="tabs">
+    <button class="tab tab-book active" data-view="classes">班级管理</button>
+    <button class="tab tab-book" data-view="rooms">机房管理</button>
+    <span class="tab-divider"></span>
+    <select id="classSelect" title="选择班级（一本册子里的各个区）"></select>
+    <span class="tab-divider"></span>
+    <button class="tab" data-view="attendance">考勤</button>
+    <button class="tab" data-view="homework">作业批改</button>
+    <button class="tab" data-view="records">课堂记录</button>
+    <button class="tab" data-view="summary">期末总评</button>
+  </nav>
+  <div class="topbar-right">
+    <button class="btn ghost sm" id="btnHelp">使用说明</button>
+    <button class="btn ghost sm" id="btnBackup">备份数据</button>
+    <button class="btn ghost sm" id="btnRestore">恢复数据</button>
+    <input type="file" id="restoreInput" accept="application/json,.json" hidden>
+  </div>
+</header>
+
+<main id="main">
+  <div class="crumb" id="crumb"></div>
+  <section class="view" id="view-classes"></section>
+  <section class="view hidden" id="view-rooms"></section>
+  <section class="view hidden" id="view-attendance"></section>
+  <section class="view hidden" id="view-homework"></section>
+  <section class="view hidden" id="view-records"></section>
+  <section class="view hidden" id="view-summary"></section>
+</main>
+
+<div id="popover" class="popover hidden"></div>
+<div id="toast" class="toast-wrap"></div>
+<div id="modal" class="modal-root hidden"></div>
+<input type="file" id="hiddenFile" hidden>
+
+<script src="js/core.js"></script>
+<script src="js/attendance.js"></script>
+<script src="js/homework.js"></script>
+<script src="js/records.js"></script>
+<script src="js/classes.js"></script>
+<script src="js/rooms.js"></script>
+<script src="js/summary.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
