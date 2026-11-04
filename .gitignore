@@ -1,0 +1,8 @@
+# 学生数据备份不能进公开仓库
+数据备份/
+*.bak.json
+
+# 系统垃圾
+.DS_Store
+Thumbs.db
+desktop.ini
