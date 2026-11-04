@@ -104,6 +104,14 @@
     return rec;
   }
 
+  /** “已上 N 节”永远跟着实际记录走：有记录就取记录里最大的“第几次课”，
+      一条都不剩就归零。以前用 Math.max 只增不减，删掉记录后首页会一直显示旧数字。 */
+  function syncLessonCount(cls) {
+    if (!cls) return 0;
+    cls.lessonCount = (cls.records || []).reduce((m, r) => Math.max(m, r.termNo || 0), 0);
+    return cls.lessonCount;
+  }
+
   /* ---------- 保存本节课 ---------- */
   /** 本节课有没有上传过作业（上传过就有每人一条的状态） */
   function hasHomework(cls) {
@@ -159,7 +167,7 @@
       recalc(rec, cls);
       openEditor(cls, rec, true, () => {
         cls.records.push(rec);
-        cls.lessonCount = Math.max(cls.lessonCount || 0, rec.termNo);
+        syncLessonCount(cls);
         cls.draft = null;
         // 为下节课做准备：作业要求与上传的作业一起清空（同学段同课次的模板还在）
         if (V.resetHomework) V.resetHomework(cls); else cls.homeworkReq = [];
@@ -523,7 +531,7 @@
           recalc(rec, cls);
           openEditor(cls, rec, false, () => {
             cls.records.push(rec);
-            cls.lessonCount = Math.max(cls.lessonCount || 0, rec.termNo);
+            syncLessonCount(cls);
             state.open[rec.id] = true;
             S.save(); render();
             U.toast('已添加第 ' + rec.termNo + ' 次课记录', 'ok');
@@ -752,7 +760,7 @@
           U.el('button', {
             class: 'btn sm', text: '编辑', onclick: e => {
               e.stopPropagation();
-              openEditor(cls, r, false, () => { S.save(); render(); U.toast('已更新第 ' + r.termNo + ' 次课记录', 'ok'); });
+              openEditor(cls, r, false, () => { syncLessonCount(cls); S.save(); render(); U.toast('已更新第 ' + r.termNo + ' 次课记录', 'ok'); });
             }
           }),
           U.el('button', { class: 'btn sm ghost', text: '导出本节 CSV', onclick: e => { e.stopPropagation(); exportOne(cls, r); } }),
@@ -762,6 +770,8 @@
               U.confirm('删除第 ' + r.termNo + ' 次课的记录？', () => {
                 const i = cls.records.indexOf(r);
                 if (i >= 0) cls.records.splice(i, 1);
+                // 删完要同步“已上 N 节”：班级管理首页、期末总评都读这个数
+                syncLessonCount(cls);
                 S.save(); render();
               });
             }

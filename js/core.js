@@ -330,6 +330,9 @@ window.App = window.App || {};
           r.stats.awardItem = r.awards.reduce((n, a) => n + (a.list || []).length, 0);
         }
       });
+      // 「已上 N 节」必须和实际记录一致。删过记录的班级在旧版本里这个数没退回来，
+      // 每次加载都按记录里最大的“第几次课”重算一遍，顺手把历史遗留的错值修掉。
+      c.lessonCount = c.records.reduce((m, r) => Math.max(m, r.termNo || 0), 0);
       // 旧版本直接写在班级上的“电脑不可用”标记，迁到机房记录里
       Object.keys(c.broken || {}).forEach(seat => {
         const room = A.rooms.byNo(c.room);
