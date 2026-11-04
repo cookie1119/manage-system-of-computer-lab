@@ -163,9 +163,14 @@
       C.status('已同步');
       return { ok: true, source: 'cloud' };
     }
-    // 云端还没有数据：把本机现有的传上去
-    pushNow();
-    return { ok: true, source: 'local' };
+    // 云端还没有数据。只有“这台设备以前真的存过数据”才把本机数据推上去，
+    // 否则一台全新设备（手机）登录就会把一份空数据顶到云端，反过来把电脑上的真实数据覆盖掉。
+    if (S.hasLocalData && S.hasLocalData()) {
+      pushNow();
+      return { ok: true, source: 'local' };
+    }
+    C.status('云端为空', 'bad');
+    return { ok: true, source: 'empty' };
   };
 
   function pushNow() {

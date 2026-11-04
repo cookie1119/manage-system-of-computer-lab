@@ -70,8 +70,13 @@
     if (A.cloud && A.cloud.enabled) {
       const ok = await A.cloud.ensureLogin();
       if (!ok) return;
-      try { await A.cloud.pull(); }
-      catch (e) { U.toast('云端数据没读上来，先用本机数据：' + e.message, 'err'); }
+      A.cloud.mountBar();          // 先挂状态条，pull 里的状态提示才有地方显示
+      try {
+        const r = await A.cloud.pull();
+        if (r && r.source === 'empty') {
+          U.toast('云端还是空的：请先在有班级数据的那台电脑上登录一次，把数据传上去', 'err');
+        }
+      } catch (e) { U.toast('云端数据没读上来，先用本机数据：' + e.message, 'err'); }
       A.cloud.mountBar();
     } else if (A.cloud && A.cloud.missingSdk) {
       U.toast('云端组件没加载成功（可能是网络问题），当前是本地模式', 'err');

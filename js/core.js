@@ -353,6 +353,10 @@ window.App = window.App || {};
     if (A.cloud && A.cloud.touch) A.cloud.touch();
   };
   S.raw = () => db;
+  /** 本机以前是否真的存过数据（用来判断“这台设备是不是全新的”，避免把空数据顶到云端） */
+  S.hasLocalData = function () {
+    try { return !!localStorage.getItem(KEY); } catch (e) { return false; }
+  };
   S.setRaw = obj => { db = obj; S.save(); };
   /** 云端拉下来的整库数据：先塞进本地缓存，再清空内存重走一遍 S.load()。
       不能直接赋值 —— 那样会跳过 schema 迁移、默认字段补齐、班级排序这些逻辑。 */
