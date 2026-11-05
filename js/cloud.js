@@ -8,6 +8,7 @@
 (function (A) {
   'use strict';
   const C = A.cloud = {};
+  const U = A.util;
   const cfg = window.CLOUD_CONFIG || {};
   const TABLE = cfg.table || 'app_data';
   const hasSdk = !!(window.supabase && window.supabase.createClient);
@@ -37,6 +38,7 @@
     if (/Email not confirmed/i.test(m)) return '邮箱还没验证。请到 Supabase 后台把邮箱验证关掉，或点注册邮件里的链接';
     if (/already registered|already been registered/i.test(m)) return '这个邮箱已经注册过了，直接登录就行';
     if (/at least 6 characters/i.test(m)) return '密码至少 6 位';
+    if (/different from the old/i.test(m)) return '新密码不能和旧密码一样';
     if (/Invalid email/i.test(m)) return '邮箱格式不对';
     if (/relation .*app_data.* does not exist|does not exist/i.test(m)) return '云端的表还没建好，请先在 Supabase 执行建表语句';
     if (/row-level security/i.test(m)) return '权限策略没配好，请检查 supabase.sql 是否全部执行';
@@ -52,8 +54,10 @@
     bar.className = 'cloud-bar';
     bar.title = '云端账号：' + ((session && session.user && session.user.email) || '');
     bar.innerHTML = '<i class="dot"></i><span class="who">已连接云端</span>' +
+      '<button class="btn ghost sm" id="btnPwd" type="button">改密码</button>' +
       '<button class="btn ghost sm" id="btnSignOut" type="button">退出</button>';
     right.insertBefore(bar, right.firstChild);
+    bar.querySelector('#btnPwd').addEventListener('click', C.changePassword);
     bar.querySelector('#btnSignOut').addEventListener('click', C.signOut);
   };
 
@@ -141,6 +145,42 @@
     if (sb) { try { await sb.auth.signOut(); } catch (e) {} }
     session = null;
     location.reload();
+  };
+
+  /* ---------------- 修改密码 ---------------- */
+  /** 已登录时改自己的密码。走 Supabase 的 updateUser，只动账号，不碰任何数据。 */
+  C.changePassword = function () {
+    if (!C.enabled || !sb || !uid()) return;
+    let m = null;
+    m = U.modal({
+      title: '修改登录密码',
+      body: '<label class="gate-label">新密码<input type="password" id="pwdNew" autocomplete="new-password" placeholder="至少 6 位"></label>' +
+        '<label class="gate-label">再输一遍新密码<input type="password" id="pwdNew2" autocomplete="new-password" placeholder="两次要一样"></label>' +
+        '<div class="gate-msg" id="pwdMsg"></div>',
+      buttons: [
+        { label: '取消' },
+        {
+          label: '确认修改', cls: 'primary', onClick: (box) => {
+            const a = box.querySelector('#pwdNew'), b = box.querySelector('#pwdNew2');
+            const msg = box.querySelector('#pwdMsg');
+            const show = (t, kind) => { msg.textContent = t; msg.className = 'gate-msg' + (kind ? ' ' + kind : ''); };
+            if (!a.value || a.value.length < 6) { show('密码至少 6 位', 'err'); return false; }
+            if (a.value !== b.value) { show('两次输入的密码不一样', 'err'); return false; }
+            show('正在修改…');
+            sb.auth.updateUser({ password: a.value }).then(({ error }) => {
+              if (error) { show(friendly(error), 'err'); return; }
+              if (m) m.close();
+              U.toast('密码已改好，下次登录请用新密码', 'ok');
+            }).catch(e => show(friendly(e), 'err'));
+            return false;   // 成败都由这里决定何时关弹窗，不让它点一下就自动关
+          }
+        }
+      ]
+    });
+    // 在“再输一遍”框里按回车 = 点确认
+    const box = m.box;
+    const confirmBtn = Array.from(box.querySelectorAll('.modal-foot button')).find(b => b.textContent === '确认修改');
+    if (confirmBtn) box.querySelector('#pwdNew2').addEventListener('keydown', e => { if (e.key === 'Enter') confirmBtn.click(); });
   };
 
   /* ---------------- 拉取 / 推送 ---------------- */

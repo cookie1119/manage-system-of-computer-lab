@@ -494,4 +494,4 @@ body.gated .topbar,body.gated #main{display:none !important}
 .cloud-bar .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);display:inline-block;flex:none}
 .cloud-bar.bad{color:var(--warn)}
 .cloud-bar.bad .dot{background:var(--warn)}
-.cloud-bar #btnSignOut{padding:2px 8px;font-size:12px;margin-left:2px}
+.cloud-bar .btn{padding:2px 8px;font-size:12px;margin-left:2px}
