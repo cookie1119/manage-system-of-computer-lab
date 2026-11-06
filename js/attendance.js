@@ -675,9 +675,10 @@
     node.classList.add(st);
     if (st === 'early') node.classList.add(a.early === 'bad' ? 'early-bad' : 'early-ok');
 
-    // 行为标签：默认隐藏（点工具栏「显示色标」才显示）；当堂当场标红的始终显示
+    // 行为标签：默认隐藏（点工具栏「显示色标」才显示）；
+    // 当场标红的、以及本节课已经记满 3 项违纪的，始终显示（当场就能看到，不用等保存）
     if (A.tagSys) {
-      const onStage = A.tagSys.markedNow(cls, sid);
+      const onStage = A.tagSys.markedNow(cls, sid) || A.tagSys.violNow(cls, sid) >= 3;
       const tagBg = onStage ? A.tagSys.bg(cls, sid, 1)
         : (S.load().showTags ? A.tagSys.bg(cls, sid) : '');
       if (tagBg) node.style.background = tagBg;

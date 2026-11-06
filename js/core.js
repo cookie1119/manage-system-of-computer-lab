@@ -3,6 +3,19 @@ window.App = window.App || {};
 (function (A) {
   'use strict';
 
+  /* 页面版本号：直接取自 index.html 里 <script src="js/core.js?v=xxx">，改版本号只需改一处。
+     顶栏会显示它 —— 如果显示的不是最新版本，说明浏览器还在用旧缓存（Ctrl+F5）。 */
+  try {
+    const me = document.querySelector('script[src*="js/core.js"]');
+    const src = me ? (me.getAttribute('src') || me.src || '') : '';
+    const m = /\?v=([\w.-]+)/.exec(src);
+    A.version = m ? m[1] : '';
+  } catch (e) { A.version = ''; }
+  document.addEventListener('DOMContentLoaded', () => {
+    const el = document.getElementById('appVer');
+    if (el && A.version) el.textContent = 'v' + A.version;
+  });
+
   /* ---------------- 通用工具 ---------------- */
   const U = A.util = {};
 
@@ -1311,6 +1324,13 @@ window.App = window.App || {};
       .reduce((n, v) => n + A.views.countOf(v.list), 0);
   };
 
+  /** 本节课到目前为止该生记了几项违纪（含同一项记多次）——用来当场提示红标 */
+  TAG.violNow = function (cls, sid) {
+    const a = cls.draft && cls.draft.att ? cls.draft.att[sid] : null;
+    if (!a || !a.viol) return 0;
+    return a.viol.reduce((n, v) => n + (parseInt(v.n, 10) || 1), 0);
+  };
+
   /** 红档 +1（封顶全红）；已在全红则只清回退进度 */
   function redUp(st) {
     if (st.r >= 4) { st.rb = 0; return; }
@@ -1368,23 +1388,28 @@ window.App = window.App || {};
 
   /** 状态一句话（菜单标题用） */
   TAG.stateText = function (cls, sid) {
-    const st = (cls.tags || {})[String(sid)];
-    if (!st) return TAG.markedNow(cls, sid) ? '本节课已当场标红' : '';
+    const st = (cls.tags || {})[String(sid)] || {};
     const R = ['', '¼红', '½红', '¾红', '全红'];
     const D = ['', '¼黄', '½黄', '¾黄'];
     const parts = [];
     if (st.r) parts.push('红:' + R[st.r] + (st.r === 4 && st.rb ? '（已回退' + st.rb + '档）' : ''));
     if (st.d >= 1 && st.d <= 3) parts.push('值日:' + D[st.d]);
     if (st.d >= 4) parts.push('值日:已转红（累计第' + st.d + '次）');
+    const vn = TAG.violNow(cls, sid);
     if (TAG.markedNow(cls, sid)) parts.push('本节课已当场标红');
+    else if (vn >= 3) parts.push('本节课已记' + vn + '项违纪（下课保存后 +1 档）');
     return parts.join(' · ');
   };
 
   /** 座位标签背景：从左往右的分带渐变（红带在前、黄带补右），没有可见标签返回 ''。
       plus=1 时预览“当场标红后”的样子（红档临时 +1）。 */
   TAG.bg = function (cls, sid, plus) {
-    const st = (cls.tags || {})[String(sid)];
-    if (!st) return '';
+    let st = (cls.tags || {})[String(sid)];
+    if (!st) {
+      if (!plus) return '';
+      // 还没落过库的学生（比如开学第一节课）：当场预览也要能画出来
+      st = { d: 0, r: 0, rb: 0 };
+    }
     let r = st.r, rb = st.rb;
     if (plus) { r = Math.min(4, r + plus); rb = 0; }
     const red = Math.max(0, Math.min(4, r - rb));            // 全红回退 n 档，红带少 n/4
