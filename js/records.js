@@ -74,6 +74,7 @@
       missing: hw ? hw.missing.slice() : [],
       homework: hw,
       moves: d.moves.slice(),
+      redMarked: (d.redMark || []).slice(),   // 本节课当场写过保证书（标红）的学生
       note: d.note || ''
     };
   }
@@ -168,8 +169,9 @@
       openEditor(cls, rec, true, () => {
         cls.records.push(rec);
         syncLessonCount(cls);
-        // 行为标签：本节课结束落库，推进值日/红标链
+        // 行为标签：本节课结束落库，推进值日/红标链；色标显示回到默认隐藏
         if (A.tagSys) A.tagSys.onNewRecord(cls, rec);
+        S.load().showTags = false;
         cls.draft = null;
         // 为下节课做准备：作业要求与上传的作业一起清空（同学段同课次的模板还在）
         if (V.resetHomework) V.resetHomework(cls); else cls.homeworkReq = [];

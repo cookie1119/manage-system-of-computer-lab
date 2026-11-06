@@ -279,7 +279,25 @@ window.App = window.App || {};
       c.roster = c.roster || {};
       c.homeworkReq = c.homeworkReq || [];
       c.records = c.records || [];
-      c.tags = c.tags || {};          // 行为标签：值日链 + 扣分红链（见 tagSys）
+      if (c.tagsV !== 2) {
+        // 第 1 版标签（黄/橙/隐藏 + ⅓红渐变）迁移到第 2 版（¼ 分档 · 左右渐变）
+        const t1 = c.tags || {};
+        const t2 = {};
+        Object.keys(t1).forEach(k => {
+          const o = t1[k] || {};
+          let r = 0;
+          if (o.r === 1 || o.r === '1h') r = 1;
+          else if (o.r === 2) r = 2;
+          else if (o.r === 3) r = 4;            // 旧「持续全红」→ 新「全红」
+          else r = parseInt(o.r, 10) || 0;
+          const od = parseInt(o.d, 10) || 0;
+          // 旧版「全橙 / 全橙已隐藏」= 值日已经满 4 次，在新版等同于已转红
+          if (od >= 4) r = Math.max(r, 1);
+          t2[k] = { d: Math.min(4, od), r: r, rb: r === 4 ? (parseInt(o.rb, 10) || 0) : 0 };
+        });
+        c.tags = t2;
+        c.tagsV = 2;
+      }
       c.teacher = c.teacher || '';    // 任教老师（班级管理分组用）
       c.exam = c.exam || {};
       c.gradeFix = c.gradeFix || {};
@@ -352,6 +370,7 @@ window.App = window.App || {};
     });
     // 班级顺序：默认按“年级 → 班级号”，老师手动调过就一直保持他排的顺序
     db.classSortManual = !!db.classSortManual;
+    db.showTags = !!db.showTags;                   // 考勤页色标显示开关（下课保存后自动回隐藏）
     db.groupCollapsed = db.groupCollapsed || {};   // 班级管理按老师分组时各组的收起状态
     if (!db.classSortManual) db.classes.sort(defaultClassCompare);
     if (!db.classes.some(c => c.id === db.currentClassId)) db.currentClassId = db.classes[0].id;
@@ -1262,15 +1281,16 @@ window.App = window.App || {};
     });
   };
 
-  /* ================= 行为标签：值日链（黄→橙）+ 扣分红链 =================
+  /* ================= 行为标签（第 2 版）：¼ 分档 · 左右渐变 =================
      每个学生一条状态（按学号存字符串键）：
-       d 值日链：0 无 · 1 黄 · 2 ⅓橙 · 3 ⅔橙 · 4 全橙 · 5 全橙已隐藏（留记忆）
-       r 红链　：0 无 · 1 全红可见（可写保证书）· '1h' 全红已隐藏 · 2 ⅓红渐变（保证书无效、不可回退）· 3 持续全红
-       rb 持续全红的回退次数 0-3：每退一档平时分 +20，封顶 60；再犯清零重来
-     升档按“节”推进：每保存一节新课、还没点整改，就加深一档，与隔了多少天无关。
-     显示规则（三等分带，自上而下）：红 > 橙 > 黄，被盖住的和隐藏的都留记忆。 */
+       r 红档　：违纪「达标」（一节课违纪 ≥3 项，或老师当场写保证书标红）累计的次数
+                 0 无 · 1 ¼红 · 2 ½红 · 3 ¾红 · 4 全红；红带从左往右铺
+       rb 回退 ：只在全红时可用，每退一档红带少 ¼、平时分 +20（封顶 60）；回退后再犯清零
+       d 值日　：累计次数，黄带 ¼/½/¾（第 1/2/3 次）；第 4 次值日转红（红档 +1），之后值日再犯红档继续 +1
+     显示：红带占左边、黄带只补右边剩余（红 > 黄）；被盖住只是盖住，记忆还在。
+     色标默认隐藏（db.showTags 开关控制）；当堂当场标红的始终显示，下课保存后回到隐藏。 */
   const TAG = A.tagSys = {};
-  const TAG_COLOR = { yellow: '#FBF0C8', orange: '#F6D9A7', red: '#F2BCBC' };
+  const TAG_COLOR = { yellow: '#FBF0C8', red: '#F2BCBC' };
 
   function tagState(cls, sid) {
     const t = cls.tags = cls.tags || {};
@@ -1291,41 +1311,36 @@ window.App = window.App || {};
       .reduce((n, v) => n + A.views.countOf(v.list), 0);
   };
 
-  function redHit(st) {
-    if (st.r === 0) st.r = 1;              // 第一次达标：全红可见，可写保证书
-    else if (st.r === 1) st.r = 2;         // 没写保证书又达标：直接升 ⅓红
-    else if (st.r === '1h') st.r = 2;      // 隐藏全红后再达标：⅓红（保证书从此无效）
-    else if (st.r === 2) { st.r = 3; st.rb = 0; }  // ⅓红再达标：持续全红
-    else if (st.r === 3) { st.rb = 0; }    // 持续红再犯：回退进度清零，平时分回 0
+  /** 红档 +1（封顶全红）；已在全红则只清回退进度 */
+  function redUp(st) {
+    if (st.r >= 4) { st.rb = 0; return; }
+    st.r += 1;
+    if (st.r === 4) st.rb = 0;
   }
 
-  /** 保存一条新课记录后推进全班标签状态。rec 是刚保存的那条。 */
+  /** 保存一条新课记录后推进全班标签。rec.redMarked 是本节课当场标过红（写保证书）的学号。 */
   TAG.onNewRecord = function (cls, rec) {
     if (!cls || !rec) return;
+    const marked = rec.redMarked || [];
     S.activeStudents(cls).forEach(sid => {
       const st = tagState(cls, sid);
-      // 上一节留着的黄/橙，这一节还没整改 → 加深一档（全橙及隐藏状态不自动变）
-      if (st.d >= 1 && st.d <= 3) st.d++;
-      // 这一节又记了值日
+      // 值日：黄带只累计到第 3 次，第 4 次起转红（之后每次再犯红档继续 +1）
       if (dutyMarked(rec, sid)) {
-        if (st.d === 5) { st.r = 3; st.rb = 0; st.d = 0; }  // 隐藏全橙后再犯 → 持续全红
-        else if (st.d === 0) st.d = 1;                       // 从头记录：先标黄
-        // d 1..3：上面刚升过档，同一节的标记不额外叠加
+        st.d += 1;
+        if (st.d >= 4) redUp(st);
       }
-      // 一节课扣分达标（≥3）
-      if (TAG.violCount(rec, sid) >= 3) redHit(st);
+      // 违纪达标（≥3 项）或老师当场标过红 → 这节课 +1 档红（一节课只计一次）
+      if (TAG.violCount(rec, sid) >= 3 || marked.indexOf(sid) >= 0) redUp(st);
     });
   };
 
-  /** 名字菜单里该出现哪些按钮 */
+  /** 名字菜单里该出现哪些按钮（当场标红与草稿有关，由考勤页单独加） */
   TAG.actions = function (cls, sid) {
     const st = (cls.tags || {})[String(sid)];
     if (!st) return [];
     const list = [];
-    if (st.d >= 1 && st.d <= 3) list.push('dutyFix');
-    if (st.d === 4) list.push('dutyLetter');
-    if (st.r === 1) list.push('redLetter');
-    if (st.r === 3 && st.rb < 3) list.push('redBack');
+    if (st.d >= 1 && st.d <= 3) list.push('dutyFix');   // 已转红（d≥4）的清不了
+    if (st.r === 4 && st.rb < 3) list.push('redBack');
     return list;
   };
 
@@ -1333,55 +1348,65 @@ window.App = window.App || {};
   TAG.doAction = function (cls, sid, act) {
     const st = tagState(cls, sid);
     if (act === 'dutyFix' && st.d >= 1 && st.d <= 3) { st.d = 0; return true; }
-    if (act === 'dutyLetter' && st.d === 4) { st.d = 5; return true; }
-    if (act === 'redLetter' && st.r === 1) { st.r = '1h'; return true; }
-    if (act === 'redBack' && st.r === 3 && st.rb < 3) { st.rb++; return true; }
+    if (act === 'redBack' && st.r === 4 && st.rb < 3) { st.rb++; return true; }
     return false;
+  };
+
+  /** 当场标红 / 取消：记在当节课草稿里，下课保存时才计入红档 */
+  TAG.markNow = function (cls, sid, on) {
+    if (!cls.draft) return false;
+    const m = cls.draft.redMark = cls.draft.redMark || [];
+    const i = m.indexOf(sid);
+    if (on && i < 0) { m.push(sid); return true; }
+    if (!on && i >= 0) { m.splice(i, 1); return true; }
+    return false;
+  };
+  /** 本节课是否已当场标红 */
+  TAG.markedNow = function (cls, sid) {
+    return !!(cls.draft && (cls.draft.redMark || []).indexOf(sid) >= 0);
   };
 
   /** 状态一句话（菜单标题用） */
   TAG.stateText = function (cls, sid) {
     const st = (cls.tags || {})[String(sid)];
-    if (!st) return '';
-    const D = ['', '黄', '⅓橙', '⅔橙', '全橙', '全橙·已隐藏'];
+    if (!st) return TAG.markedNow(cls, sid) ? '本节课已当场标红' : '';
+    const R = ['', '¼红', '½红', '¾红', '全红'];
+    const D = ['', '¼黄', '½黄', '¾黄'];
     const parts = [];
-    if (st.d) parts.push('值日:' + D[st.d]);
-    if (st.r === 1) parts.push('扣分:全红');
-    if (st.r === '1h') parts.push('扣分:全红·已隐藏');
-    if (st.r === 2) parts.push('扣分:⅓红');
-    if (st.r === 3) parts.push('扣分:持续全红' + (st.rb ? '（已回退' + st.rb + '档）' : ''));
+    if (st.r) parts.push('红:' + R[st.r] + (st.r === 4 && st.rb ? '（已回退' + st.rb + '档）' : ''));
+    if (st.d >= 1 && st.d <= 3) parts.push('值日:' + D[st.d]);
+    if (st.d >= 4) parts.push('值日:已转红（累计第' + st.d + '次）');
+    if (TAG.markedNow(cls, sid)) parts.push('本节课已当场标红');
     return parts.join(' · ');
   };
 
-  /** 座位标签背景：三等分带渐变（红/橙/黄自上而下），没有可见标签返回 '' */
-  TAG.bg = function (cls, sid) {
+  /** 座位标签背景：从左往右的分带渐变（红带在前、黄带补右），没有可见标签返回 ''。
+      plus=1 时预览“当场标红后”的样子（红档临时 +1）。 */
+  TAG.bg = function (cls, sid, plus) {
     const st = (cls.tags || {})[String(sid)];
     if (!st) return '';
-    let red = 0, org = 0;
-    if (st.r === 1) red = 3;
-    else if (st.r === 2) red = 1;
-    else if (st.r === 3) red = 3 - st.rb;          // 退一档少三分之一
-    if (st.d >= 2 && st.d <= 4) org = st.d - 1;    // ⅓橙/⅔橙/全橙
-    if (st.d === 1 && red === 0) return TAG_COLOR.yellow;   // 纯黄
-    if (red <= 0 && org <= 0) return '';
-    red = Math.min(3, red);
-    org = Math.max(0, Math.min(org, 3 - red));     // 红优先占位，橙只补剩下的
+    let r = st.r, rb = st.rb;
+    if (plus) { r = Math.min(4, r + plus); rb = 0; }
+    const red = Math.max(0, Math.min(4, r - rb));            // 全红回退 n 档，红带少 n/4
+    const yellow = (st.d >= 1 && st.d <= 3) ? st.d : 0;      // 转红后黄带不再显示（记忆保留）
+    if (red <= 0 && yellow <= 0) return '';
+    const wR = red / 4;
+    const wY = Math.max(0, Math.min(yellow / 4, 1 - wR));    // 红优先占位，黄只补右侧剩余
     const bands = [];
-    if (red > 0) bands.push([TAG_COLOR.red, red]);
-    if (org > 0) bands.push([TAG_COLOR.orange, org]);
-    const rest = 3 - red - org;
-    if (rest > 0) bands.push([TAG_COLOR.yellow, rest]);
+    if (wR > 0) bands.push([TAG_COLOR.red, wR]);
+    if (wY > 0) bands.push([TAG_COLOR.yellow, wY]);
     // 每段之间留 1.5% 的柔和过渡，整体保持淡淡的感觉
     let acc = 0;
     const parts = [];
     bands.forEach((b, i) => {
-      const from = acc * 100 / 3, to = (acc + b[1]) * 100 / 3;
+      const from = acc * 100, to = (acc + b[1]) * 100;
       const f = Math.round(from + (i ? 1.5 : 0));
       const t = Math.round(to - (i < bands.length - 1 ? 1.5 : 0));
       parts.push(b[0] + ' ' + f + '%', b[0] + ' ' + t + '%');
       acc += b[1];
     });
-    return 'linear-gradient(180deg,' + parts.join(',') + ')';
+    return 'linear-gradient(90deg,' + parts.join(',') + ')';
   };
+
 
 })(window.App);

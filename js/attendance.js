@@ -332,26 +332,32 @@
     /* 行为标签按钮：只在该生达到对应条件时才出现，点了不会被新课自动重置 */
     if (A.tagSys) {
       const nm = SE.name(cls, sid) || '';
+      // 当场标红（写保证书）：课堂进行中随时可标，下课保存后计入红档
+      if (cls.draft) {
+        if (A.tagSys.markedNow(cls, sid)) {
+          items.push({
+            label: '取消本节课红标（还没落库，可反悔）', cls: 'green',
+            on: () => {
+              A.tagSys.markNow(cls, sid, false); S.save(); refresh();
+              U.toast(sid + '号 ' + nm + '：本节课红标已取消', 'ok');
+            }
+          });
+        } else {
+          items.push({
+            label: '写保证书（当场标红，下课保存后 +1 档红）', cls: 'danger',
+            on: () => {
+              A.tagSys.markNow(cls, sid, true); S.save(); refresh();
+              U.toast(sid + '号 ' + nm + '：已当场标红，下课保存后计入红档', 'ok');
+            }
+          });
+        }
+      }
       (A.tagSys.actions(cls, sid) || []).forEach(act => {
         if (act === 'dutyFix') items.push({
-          label: '值日已整改（清掉黄/橙标）', cls: 'green',
+          label: '值日已整改（黄标清零，从头计）', cls: 'green',
           on: () => {
             A.tagSys.doAction(cls, sid, act); S.save(); refresh();
-            U.toast(sid + '号 ' + nm + '：值目标已清零，再犯从头记录', 'ok');
-          }
-        });
-        if (act === 'dutyLetter') items.push({
-          label: '值日保证书已写（隐藏全橙·留记忆）', cls: 'warn',
-          on: () => {
-            A.tagSys.doAction(cls, sid, act); S.save(); refresh();
-            U.toast(sid + '号 ' + nm + '：全橙已隐藏，再犯直接持续全红', 'ok');
-          }
-        });
-        if (act === 'redLetter') items.push({
-          label: '扣分保证书已写（隐藏全红·留记忆）', cls: 'warn',
-          on: () => {
-            A.tagSys.doAction(cls, sid, act); S.save(); refresh();
-            U.toast(sid + '号 ' + nm + '：全红已隐藏，再达标转 ⅓红且无法再隐藏', 'ok');
+            U.toast(sid + '号 ' + nm + '：值日黄标已清零，再犯从头记录', 'ok');
           }
         });
         if (act === 'redBack') {
@@ -574,6 +580,12 @@
     tb.appendChild(U.el('div', { style: { marginLeft: 'auto' } }));
 
     tb.appendChild(U.el('button', {
+      class: 'btn sm ' + (S.load().showTags ? 'on' : ''),
+      text: S.load().showTags ? '隐藏色标' : '显示色标',
+      title: '显示 / 隐藏本学期的红黄标签；当堂当场标红的始终显示，下课保存后自动回到隐藏',
+      onclick: () => { S.load().showTags = !S.load().showTags; S.save(); render(); }
+    }));
+    tb.appendChild(U.el('button', {
       class: 'btn sm ' + (state.moving ? 'on' : ''),
       text: state.moving ? '换座中（点击退出）' : '换座',
       onclick: () => {
@@ -663,9 +675,11 @@
     node.classList.add(st);
     if (st === 'early') node.classList.add(a.early === 'bad' ? 'early-bad' : 'early-ok');
 
-    // 行为标签（值日黄/橙、扣分红）：淡淡的渐变铺在座位卡底色上
+    // 行为标签：默认隐藏（点工具栏「显示色标」才显示）；当堂当场标红的始终显示
     if (A.tagSys) {
-      const tagBg = A.tagSys.bg(cls, sid);
+      const onStage = A.tagSys.markedNow(cls, sid);
+      const tagBg = onStage ? A.tagSys.bg(cls, sid, 1)
+        : (S.load().showTags ? A.tagSys.bg(cls, sid) : '');
       if (tagBg) node.style.background = tagBg;
     }
 

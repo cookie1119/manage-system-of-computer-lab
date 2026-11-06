@@ -79,12 +79,12 @@
         leaveN: leaveN, lessonTotal: lessonTotal, longLeave: longLeave
       });
     });
-    // 持续红标（r===3）：课堂表现按回退进度覆盖 —— 每回退一档 +20，封顶 60，没回退过就是 0
+    // 全红（r===4）：课堂表现按回退进度覆盖 —— 每回退一档 +20，封顶 60，没回退过就是 0
     rows.forEach(x => {
       const st = (cls.tags || {})[String(x.sid)];
-      if (st && st.r === 3) {
+      if (st && st.r === 4) {
         x.perf = Math.min(60, st.rb * 20);
-        x.pLog.unshift('持续红标：平时分 = 回退 ' + st.rb + ' 次 × 20（封顶 60）');
+        x.pLog.unshift('全红：平时分 = 回退 ' + st.rb + ' 次 × 20（封顶 60）');
       }
     });
     const w = cfg().weights;
