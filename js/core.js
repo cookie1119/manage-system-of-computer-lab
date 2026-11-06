@@ -279,6 +279,8 @@ window.App = window.App || {};
       c.roster = c.roster || {};
       c.homeworkReq = c.homeworkReq || [];
       c.records = c.records || [];
+      c.tags = c.tags || {};          // 行为标签：值日链 + 扣分红链（见 tagSys）
+      c.teacher = c.teacher || '';    // 任教老师（班级管理分组用）
       c.exam = c.exam || {};
       c.gradeFix = c.gradeFix || {};
       if (c.grade === undefined) c.grade = '初一';
@@ -344,6 +346,7 @@ window.App = window.App || {};
     });
     // 班级顺序：默认按“年级 → 班级号”，老师手动调过就一直保持他排的顺序
     db.classSortManual = !!db.classSortManual;
+    db.groupCollapsed = db.groupCollapsed || {};   // 班级管理按老师分组时各组的收起状态
     if (!db.classSortManual) db.classes.sort(defaultClassCompare);
     if (!db.classes.some(c => c.id === db.currentClassId)) db.currentClassId = db.classes[0].id;
     return db;
@@ -1251,6 +1254,128 @@ window.App = window.App || {};
     TPL.sheet('考试成绩模板-' + cls.name + '.xlsx', '成绩', rows, {
       types: { 0: 'text', 1: 'text', 2: 'number' }, widths: [10, 14, 12]
     });
+  };
+
+  /* ================= 行为标签：值日链（黄→橙）+ 扣分红链 =================
+     每个学生一条状态（按学号存字符串键）：
+       d 值日链：0 无 · 1 黄 · 2 ⅓橙 · 3 ⅔橙 · 4 全橙 · 5 全橙已隐藏（留记忆）
+       r 红链　：0 无 · 1 全红可见（可写保证书）· '1h' 全红已隐藏 · 2 ⅓红渐变（保证书无效、不可回退）· 3 持续全红
+       rb 持续全红的回退次数 0-3：每退一档平时分 +20，封顶 60；再犯清零重来
+     升档按“节”推进：每保存一节新课、还没点整改，就加深一档，与隔了多少天无关。
+     显示规则（三等分带，自上而下）：红 > 橙 > 黄，被盖住的和隐藏的都留记忆。 */
+  const TAG = A.tagSys = {};
+  const TAG_COLOR = { yellow: '#FBF0C8', orange: '#F6D9A7', red: '#F2BCBC' };
+
+  function tagState(cls, sid) {
+    const t = cls.tags = cls.tags || {};
+    const k = String(sid);
+    return t[k] = t[k] || { d: 0, r: 0, rb: 0 };
+  }
+  TAG.stateOf = tagState;
+
+  /** 这条记录里该生有没有被记「值日」违纪（奖励里的“值日”是表扬，不算） */
+  function dutyMarked(rec, sid) {
+    return (rec.violations || []).some(v => v.sid === sid &&
+      (v.list || []).some(it => it && it.type === '值日' && (it.n || 0) > 0));
+  }
+
+  /** 一节课违纪扣分合计（一项算一次） */
+  TAG.violCount = function (rec, sid) {
+    return (rec.violations || []).filter(v => v.sid === sid)
+      .reduce((n, v) => n + A.views.countOf(v.list), 0);
+  };
+
+  function redHit(st) {
+    if (st.r === 0) st.r = 1;              // 第一次达标：全红可见，可写保证书
+    else if (st.r === 1) st.r = 2;         // 没写保证书又达标：直接升 ⅓红
+    else if (st.r === '1h') st.r = 2;      // 隐藏全红后再达标：⅓红（保证书从此无效）
+    else if (st.r === 2) { st.r = 3; st.rb = 0; }  // ⅓红再达标：持续全红
+    else if (st.r === 3) { st.rb = 0; }    // 持续红再犯：回退进度清零，平时分回 0
+  }
+
+  /** 保存一条新课记录后推进全班标签状态。rec 是刚保存的那条。 */
+  TAG.onNewRecord = function (cls, rec) {
+    if (!cls || !rec) return;
+    S.activeStudents(cls).forEach(sid => {
+      const st = tagState(cls, sid);
+      // 上一节留着的黄/橙，这一节还没整改 → 加深一档（全橙及隐藏状态不自动变）
+      if (st.d >= 1 && st.d <= 3) st.d++;
+      // 这一节又记了值日
+      if (dutyMarked(rec, sid)) {
+        if (st.d === 5) { st.r = 3; st.rb = 0; st.d = 0; }  // 隐藏全橙后再犯 → 持续全红
+        else if (st.d === 0) st.d = 1;                       // 从头记录：先标黄
+        // d 1..3：上面刚升过档，同一节的标记不额外叠加
+      }
+      // 一节课扣分达标（≥3）
+      if (TAG.violCount(rec, sid) >= 3) redHit(st);
+    });
+  };
+
+  /** 名字菜单里该出现哪些按钮 */
+  TAG.actions = function (cls, sid) {
+    const st = (cls.tags || {})[String(sid)];
+    if (!st) return [];
+    const list = [];
+    if (st.d >= 1 && st.d <= 3) list.push('dutyFix');
+    if (st.d === 4) list.push('dutyLetter');
+    if (st.r === 1) list.push('redLetter');
+    if (st.r === 3 && st.rb < 3) list.push('redBack');
+    return list;
+  };
+
+  /** 执行按钮动作，成功返回 true */
+  TAG.doAction = function (cls, sid, act) {
+    const st = tagState(cls, sid);
+    if (act === 'dutyFix' && st.d >= 1 && st.d <= 3) { st.d = 0; return true; }
+    if (act === 'dutyLetter' && st.d === 4) { st.d = 5; return true; }
+    if (act === 'redLetter' && st.r === 1) { st.r = '1h'; return true; }
+    if (act === 'redBack' && st.r === 3 && st.rb < 3) { st.rb++; return true; }
+    return false;
+  };
+
+  /** 状态一句话（菜单标题用） */
+  TAG.stateText = function (cls, sid) {
+    const st = (cls.tags || {})[String(sid)];
+    if (!st) return '';
+    const D = ['', '黄', '⅓橙', '⅔橙', '全橙', '全橙·已隐藏'];
+    const parts = [];
+    if (st.d) parts.push('值日:' + D[st.d]);
+    if (st.r === 1) parts.push('扣分:全红');
+    if (st.r === '1h') parts.push('扣分:全红·已隐藏');
+    if (st.r === 2) parts.push('扣分:⅓红');
+    if (st.r === 3) parts.push('扣分:持续全红' + (st.rb ? '（已回退' + st.rb + '档）' : ''));
+    return parts.join(' · ');
+  };
+
+  /** 座位标签背景：三等分带渐变（红/橙/黄自上而下），没有可见标签返回 '' */
+  TAG.bg = function (cls, sid) {
+    const st = (cls.tags || {})[String(sid)];
+    if (!st) return '';
+    let red = 0, org = 0;
+    if (st.r === 1) red = 3;
+    else if (st.r === 2) red = 1;
+    else if (st.r === 3) red = 3 - st.rb;          // 退一档少三分之一
+    if (st.d >= 2 && st.d <= 4) org = st.d - 1;    // ⅓橙/⅔橙/全橙
+    if (st.d === 1 && red === 0) return TAG_COLOR.yellow;   // 纯黄
+    if (red <= 0 && org <= 0) return '';
+    red = Math.min(3, red);
+    org = Math.max(0, Math.min(org, 3 - red));     // 红优先占位，橙只补剩下的
+    const bands = [];
+    if (red > 0) bands.push([TAG_COLOR.red, red]);
+    if (org > 0) bands.push([TAG_COLOR.orange, org]);
+    const rest = 3 - red - org;
+    if (rest > 0) bands.push([TAG_COLOR.yellow, rest]);
+    // 每段之间留 1.5% 的柔和过渡，整体保持淡淡的感觉
+    let acc = 0;
+    const parts = [];
+    bands.forEach((b, i) => {
+      const from = acc * 100 / 3, to = (acc + b[1]) * 100 / 3;
+      const f = Math.round(from + (i ? 1.5 : 0));
+      const t = Math.round(to - (i < bands.length - 1 ? 1.5 : 0));
+      parts.push(b[0] + ' ' + f + '%', b[0] + ' ' + t + '%');
+      acc += b[1];
+    });
+    return 'linear-gradient(180deg,' + parts.join(',') + ')';
   };
 
 })(window.App);

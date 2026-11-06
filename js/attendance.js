@@ -328,6 +328,46 @@
   function openStudentMenu(node, cls, sid) {
     const long = (cls.longLeave || []).indexOf(sid) >= 0;
     const items = [];
+
+    /* 行为标签按钮：只在该生达到对应条件时才出现，点了不会被新课自动重置 */
+    if (A.tagSys) {
+      const nm = SE.name(cls, sid) || '';
+      (A.tagSys.actions(cls, sid) || []).forEach(act => {
+        if (act === 'dutyFix') items.push({
+          label: '值日已整改（清掉黄/橙标）', cls: 'green',
+          on: () => {
+            A.tagSys.doAction(cls, sid, act); S.save(); refresh();
+            U.toast(sid + '号 ' + nm + '：值目标已清零，再犯从头记录', 'ok');
+          }
+        });
+        if (act === 'dutyLetter') items.push({
+          label: '值日保证书已写（隐藏全橙·留记忆）', cls: 'warn',
+          on: () => {
+            A.tagSys.doAction(cls, sid, act); S.save(); refresh();
+            U.toast(sid + '号 ' + nm + '：全橙已隐藏，再犯直接持续全红', 'ok');
+          }
+        });
+        if (act === 'redLetter') items.push({
+          label: '扣分保证书已写（隐藏全红·留记忆）', cls: 'warn',
+          on: () => {
+            A.tagSys.doAction(cls, sid, act); S.save(); refresh();
+            U.toast(sid + '号 ' + nm + '：全红已隐藏，再达标转 ⅓红且无法再隐藏', 'ok');
+          }
+        });
+        if (act === 'redBack') {
+          const rb = ((cls.tags || {})[String(sid)] || {}).rb || 0;
+          items.push({
+            label: '红标回退一档（平时分 ' + (rb * 20) + ' → ' + ((rb + 1) * 20) + '，封顶 60）', cls: 'danger',
+            on: () => {
+              A.tagSys.doAction(cls, sid, act); S.save(); refresh();
+              U.toast(sid + '号 ' + nm + '：红标已退一档，平时分上限 ' + ((rb + 1) * 20) + ' 分', 'ok');
+            }
+          });
+        }
+      });
+      if (items.length) items.push('-');
+    }
+
     items.push({
       label: long ? '取消“长期请假”' : '标记为长期请假', cls: 'blue',
       on: () => {
@@ -366,7 +406,8 @@
         });
       }
     });
-    U.popover(node, { title: sid + '号 ' + (SE.name(cls, sid) || '') + '　座位 ' + SE.seatOfStudent(cls, sid), list: items });
+    const tagTip = A.tagSys ? A.tagSys.stateText(cls, sid) : '';
+    U.popover(node, { title: sid + '号 ' + (SE.name(cls, sid) || '') + '　座位 ' + SE.seatOfStudent(cls, sid) + (tagTip ? '　【' + tagTip + '】' : ''), list: items });
   }
 
   /* ---------- 电脑不可用 / 座次长期调整 ---------- */
@@ -621,6 +662,12 @@
     const st = a.status || 'present';
     node.classList.add(st);
     if (st === 'early') node.classList.add(a.early === 'bad' ? 'early-bad' : 'early-ok');
+
+    // 行为标签（值日黄/橙、扣分红）：淡淡的渐变铺在座位卡底色上
+    if (A.tagSys) {
+      const tagBg = A.tagSys.bg(cls, sid);
+      if (tagBg) node.style.background = tagBg;
+    }
 
     const isLong = (cls.longLeave || []).indexOf(sid) >= 0;
     const top = U.el('div', { class: 's-top' });

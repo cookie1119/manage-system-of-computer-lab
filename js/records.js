@@ -168,6 +168,8 @@
       openEditor(cls, rec, true, () => {
         cls.records.push(rec);
         syncLessonCount(cls);
+        // 行为标签：本节课结束落库，推进值日/红标链
+        if (A.tagSys) A.tagSys.onNewRecord(cls, rec);
         cls.draft = null;
         // 为下节课做准备：作业要求与上传的作业一起清空（同学段同课次的模板还在）
         if (V.resetHomework) V.resetHomework(cls); else cls.homeworkReq = [];
@@ -532,6 +534,8 @@
           openEditor(cls, rec, false, () => {
             cls.records.push(rec);
             syncLessonCount(cls);
+            // 手动补的记录同样推进标签链（按记录里的违纪/值日内容判断）
+            if (A.tagSys) A.tagSys.onNewRecord(cls, rec);
             state.open[rec.id] = true;
             S.save(); render();
             U.toast('已添加第 ' + rec.termNo + ' 次课记录', 'ok');

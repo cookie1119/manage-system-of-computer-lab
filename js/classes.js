@@ -447,29 +447,63 @@
     ]);
     root.appendChild(head);
 
-    const grid = U.el('div', { class: 'class-grid' });
-    db.classes.forEach((c, i) => {
-      const named = Object.keys(c.roster || {}).length;
-      const card = U.el('div', {
-        class: 'card class-card' + (c.id === db.currentClassId ? ' current' : '') + (sorting ? ' sorting' : '')
-      }, [
-        sorting ? U.el('div', { class: 'sort-badge', html: '☰ 第 <b>' + (i + 1) + '</b> 位' }) : null,
-        U.el('h4', {}, [U.el('span', { text: c.name }), c.id === db.currentClassId ? U.el('span', { class: 'pill ok', style: { marginLeft: '8px' }, text: '当前' }) : null]),
-        U.el('div', { class: 'class-meta', text: c.studentCount + ' 人 · ' + c.room + ' 号机房 · 已上 ' + (c.lessonCount || 0) + ' 节 · 记录 ' + c.records.length + ' 条' }),
-        U.el('div', { class: 'class-meta', text: '花名册：' + (named ? '已录入 ' + named + ' 人' : '未上传') + ' · 作业要求 ' + c.homeworkReq.length + ' 项' }),
-        specialRow(c),
-        sorting ? sortActions(i, db.classes.length) : normalActions(c, db)
-      ]);
-      if (sorting) bindDrag(card, i);
-      grid.appendChild(card);
-    });
-    root.appendChild(grid);
+    // 按任教老师分组：只要有班填了老师就启用（排序模式保持平铺，方便拖动）
+    const grouped = !sorting && db.classes.some(c => String(c.teacher || '').trim());
+    if (!grouped) {
+      const grid = U.el('div', { class: 'class-grid' });
+      db.classes.forEach((c, i) => grid.appendChild(classCard(c, i, db)));
+      root.appendChild(grid);
+    } else {
+      const collapsed = db.groupCollapsed = db.groupCollapsed || {};
+      const groups = [], idx = {};
+      db.classes.forEach(c => {
+        const t = String(c.teacher || '').trim() || '未分组';
+        if (idx[t] === undefined) { idx[t] = groups.length; groups.push({ name: t, list: [] }); }
+        groups[idx[t]].list.push(c);
+      });
+      groups.sort((a, b) => (a.name === '未分组' ? 1 : 0) - (b.name === '未分组' ? 1 : 0));
+      groups.forEach(g => {
+        const open = !collapsed[g.name];
+        const head = U.el('div', { class: 'group-head' + (open ? '' : ' closed') }, [
+          U.el('span', { class: 'group-arrow', text: open ? '▾' : '▸' }),
+          U.el('b', { text: g.name === '未分组' ? '未分组（编辑班级可填任教老师）' : g.name }),
+          U.el('span', { class: 'small muted', text: g.list.length + ' 个班' })
+        ]);
+        // 当前展开（open=true）→ 点一下收起（记 true）；当前收起 → 点一下展开（记 false）
+        head.onclick = () => { collapsed[g.name] = open; S.save(); render(); };
+        root.appendChild(head);
+        if (open) {
+          const grid = U.el('div', { class: 'class-grid' });
+          g.list.forEach(c => grid.appendChild(classCard(c, db.classes.indexOf(c), db)));
+          root.appendChild(grid);
+        }
+      });
+    }
     root.appendChild(archiveArea());
     // 顺序变了，顶部的班级下拉也要跟着排
     if (A.app.refreshClassSelect) A.app.refreshClassSelect();
   }
   V.classes = { render };
   V.renderClasses = render;
+
+  /** 一张班级卡片（普通模式与排序模式共用） */
+  function classCard(c, i, db) {
+    const named = Object.keys(c.roster || {}).length;
+    const card = U.el('div', {
+      class: 'card class-card' + (c.id === db.currentClassId ? ' current' : '') + (sorting ? ' sorting' : '')
+    }, [
+      sorting ? U.el('div', { class: 'sort-badge', html: '☰ 第 <b>' + (i + 1) + '</b> 位' }) : null,
+      U.el('h4', {}, [U.el('span', { text: c.name }), c.id === db.currentClassId ? U.el('span', { class: 'pill ok', style: { marginLeft: '8px' }, text: '当前' }) : null]),
+      U.el('div', { class: 'class-meta', text: c.studentCount + ' 人 · ' + c.room + ' 号机房 · 已上 ' + (c.lessonCount || 0) + ' 节 · 记录 ' + c.records.length + ' 条' + (String(c.teacher || '').trim() ? ' · 老师：' + c.teacher : '') }),
+      U.el('div', { class: 'class-meta', text: '花名册：' + (named ? '已录入 ' + named + ' 人' : '未上传') + ' · 作业要求 ' + c.homeworkReq.length + ' 项' }),
+      specialRow(c),
+      sorting ? sortActions(i, db.classes.length) : normalActions(c, db)
+    ]);
+    if (sorting) bindDrag(card, i);
+    return card;
+  }
+
+  /** 分组渲染：按任教老师分组（保持班级原有顺序），没填老师的归「未分组」放最后；组头可收起 */
 
   /* 长期请假 / 转学 名单（可恢复） */
   function specialRow(c) {
@@ -524,13 +558,15 @@
       value: r.no, text: r.name + '（前缀 ' + r.no + '）', selected: String(data.room || '1') === r.no ? 'selected' : null
     }));
     const roomSel = U.el('select', { class: 'input' }, roomOpts.length ? roomOpts : [U.el('option', { value: '1', text: '1 号机房' })]);
+    const teacherInput = U.el('input', { class: 'input', value: data.teacher || '', placeholder: '任课老师姓名（留空则不参与分组）', maxlength: '20' });
 
     const body = U.el('div', {}, [
       U.el('div', { class: 'form-grid' }, [
         U.el('div', { class: 'field' }, [U.el('label', { text: '年级（作业命名：初一 c1 / 初二 c2）' }), gradeSel]),
         U.el('div', { class: 'field' }, [U.el('label', { text: '班级（1-21）' }), classNoSel]),
         U.el('div', { class: 'field' }, [U.el('label', { text: '人数（1-60）' }), countInput]),
-        U.el('div', { class: 'field' }, [U.el('label', { text: '机房（决定作业文件夹前缀）' }), roomSel])
+        U.el('div', { class: 'field' }, [U.el('label', { text: '机房（决定作业文件夹前缀）' }), roomSel]),
+        U.el('div', { class: 'field' }, [U.el('label', { text: '任教老师（首页按老师分组显示）' }), teacherInput])
       ]),
       U.el('div', { class: 'small muted', style: { marginTop: '10px' }, text: '座位规则：1-10 号坐 A1-A10，11-20 坐 B1-B10，…41-50 坐 E1-E10，51 起坐 A11、B11…' })
     ]);
@@ -546,11 +582,13 @@
             const grade = gradeSel.value;
             const classNo = parseInt(classNoSel.value, 10);
             const room = roomSel.value || '1';
+            const teacher = teacherInput.value.trim();
             const name = S.classNameOf(grade, classNo);
             if (isNew) {
               const nc = S.newClass(name);
               nc.studentCount = count;
               nc.grade = grade; nc.classNo = classNo; nc.room = room;
+              nc.teacher = teacher;
               SE.syncBroken(nc);
               nc.seats = SE.buildLessonSeats(nc).seats;
               const db = S.load();
@@ -560,6 +598,7 @@
               cls.name = name;
               cls.grade = grade;
               cls.classNo = classNo;
+              cls.teacher = teacher;
               const roomChanged = String(cls.room) !== String(room);
               cls.room = room;
               if (roomChanged) SE.syncBroken(cls);

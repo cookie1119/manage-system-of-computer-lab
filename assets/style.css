@@ -495,3 +495,11 @@ body.gated .topbar,body.gated #main{display:none !important}
 .cloud-bar.bad{color:var(--warn)}
 .cloud-bar.bad .dot{background:var(--warn)}
 .cloud-bar .btn{padding:2px 8px;font-size:12px;margin-left:2px}
+
+/* ===== 班级管理：按任教老师分组的组头 ===== */
+.group-head{display:flex;align-items:center;gap:8px;padding:8px 14px;margin:14px 0 10px;background:var(--primary-soft);border:1px solid var(--line);border-radius:var(--radius);cursor:pointer;user-select:none}
+.group-head:hover{border-color:var(--line-strong)}
+.group-head .group-arrow{color:var(--primary);font-size:12px;width:12px;text-align:center}
+.group-head b{font-size:13.5px;color:var(--text)}
+.group-head.closed{background:#f1f4f9}
+.group-head.closed b{color:var(--muted)}
