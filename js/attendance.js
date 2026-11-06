@@ -133,6 +133,8 @@
     a.viol = a.viol || [];
     changeCount(a.viol, type, text, delta);
     if (!a.viol.length) delete a.viol;
+    // 违纪满 3 项当场自动计 1 档红（减回 3 项以下自动退）
+    if (A.tagSys) A.tagSys.autoStage(cls, sid);
     S.save(); refresh();
   }
   V.addViolation = addViolation;
@@ -329,53 +331,57 @@
     const long = (cls.longLeave || []).indexOf(sid) >= 0;
     const items = [];
 
-    /* 行为标签按钮：只在该生达到对应条件时才出现，点了不会被新课自动重置 */
+    /* 行为标签按钮：当场计档的随本节课结束消失，待办类（保证书/整改/回退）跨课保留 */
     if (A.tagSys) {
       const nm = SE.name(cls, sid) || '';
-      // 当场标红（写保证书）：课堂进行中随时可标，下课保存后计入红档
+      const st = (cls.tags || {})[String(sid)] || {};
       if (cls.draft) {
-        if (A.tagSys.markedNow(cls, sid)) {
+        if (A.tagSys.stagedNow(cls, sid)) {
           items.push({
-            label: '取消本节课红标（还没落库，可反悔）', cls: 'green',
+            label: '取消本节标红',
             on: () => {
-              A.tagSys.markNow(cls, sid, false); S.save(); refresh();
-              U.toast(sid + '号 ' + nm + '：本节课红标已取消', 'ok');
+              A.tagSys.unstageNow(cls, sid); S.save(); refresh();
+              U.toast(sid + '号 ' + nm + '：已撤销本节课的红档', 'ok');
             }
           });
-        } else {
+        } else if ((st.r || 0) < 4) {
           items.push({
-            label: '写保证书（当场标红，下课保存后 +1 档红）', cls: 'danger',
+            label: '当场标红',
             on: () => {
-              A.tagSys.markNow(cls, sid, true); S.save(); refresh();
-              U.toast(sid + '号 ' + nm + '：已当场标红，下课保存后计入红档', 'ok');
+              A.tagSys.stageNow(cls, sid, 'hand'); S.save(); refresh();
+              U.toast(sid + '号 ' + nm + '：已当场标红并计 1 档红', 'ok');
             }
           });
         }
       }
       (A.tagSys.actions(cls, sid) || []).forEach(act => {
+        if (act === 'letterDone') items.push({
+          label: '保证书已写',
+          on: () => {
+            A.tagSys.doAction(cls, sid, act); S.save(); refresh();
+            U.toast(sid + '号 ' + nm + '：保证书已写，提醒消失', 'ok');
+          }
+        });
         if (act === 'dutyFix') items.push({
-          label: '值日已整改（黄标清零，从头计）', cls: 'green',
+          label: '值日已整改',
           on: () => {
             A.tagSys.doAction(cls, sid, act); S.save(); refresh();
             U.toast(sid + '号 ' + nm + '：值日黄标已清零，再犯从头记录', 'ok');
           }
         });
-        if (act === 'redBack') {
-          const rb = ((cls.tags || {})[String(sid)] || {}).rb || 0;
-          items.push({
-            label: '红标回退一档（平时分 ' + (rb * 20) + ' → ' + ((rb + 1) * 20) + '，封顶 60）', cls: 'danger',
-            on: () => {
-              A.tagSys.doAction(cls, sid, act); S.save(); refresh();
-              U.toast(sid + '号 ' + nm + '：红标已退一档，平时分上限 ' + ((rb + 1) * 20) + ' 分', 'ok');
-            }
-          });
-        }
+        if (act === 'redBack') items.push({
+          label: '红标回退',
+          on: () => {
+            A.tagSys.doAction(cls, sid, act); S.save(); refresh();
+            U.toast(sid + '号 ' + nm + '：红标已退一档，平时分上限 ' + (((((cls.tags || {})[String(sid)] || {}).rb) || 0) * 20) + ' 分', 'ok');
+          }
+        });
       });
       if (items.length) items.push('-');
     }
 
     items.push({
-      label: long ? '取消“长期请假”' : '标记为长期请假', cls: 'blue',
+      label: long ? '取消长期请假' : '长期请假', cls: 'blue',
       on: () => {
         const arr = cls.longLeave = cls.longLeave || [];
         const i = arr.indexOf(sid);
@@ -390,7 +396,7 @@
     });
     items.push('-');
     items.push({
-      label: '这台电脑不可用（把 ' + sid + ' 号调走并长期记住）', cls: 'warn',
+      label: '电脑不可用',
       on: () => {
         const seat = SE.seatOfStudent(cls, sid);
         if (!seat) return;
@@ -398,7 +404,7 @@
       }
     });
     items.push({
-      label: '标记为转学（移出座位与名单）', cls: 'danger',
+      label: '转学', cls: 'blue',
       on: () => {
         U.confirm('把 ' + sid + '号 ' + (SE.name(cls, sid) || '') + ' 标记为转学？该学生会从座位和考勤名单中移除（可在班级管理中恢复）。', () => {
           const seat = SE.seatOfStudent(cls, sid);
@@ -541,6 +547,7 @@
         class: 'btn primary', text: '开始上课',
         onclick: () => {
           const nd = ensureDraft(cls, true);
+          if (A.records && A.records.collapseAll) A.records.collapseAll();   // 上节课的记录自动折叠
           render();
           U.toast('本学期第 ' + nd.termNo + ' 次课已开始 · ' + nd.time, 'ok');
           const badN = nd.moves.filter(m => m.reason !== 'return').length;
@@ -615,6 +622,16 @@
         if (!cls.draft) { U.toast('请先开始上课', 'err'); return; }
         U.confirm('把全班都恢复成“出勤”吗？本节点过的缺勤、迟到、早退、请假、违纪都会被清空。', () => {
           cls.draft.att = {};
+          // 因违纪满 3 当场自动计的档，随违纪清空一起退回；手动当场标红的保留
+          if (A.tagSys && cls.draft.redCounted) {
+            Object.keys(cls.draft.redCounted).forEach(sid => {
+              if (cls.draft.redCounted[sid] === 'auto') {
+                const st2 = A.tagSys.stateOf(cls, sid);
+                if (st2 && st2.r > 0) st2.r -= 1;
+                delete cls.draft.redCounted[sid];
+              }
+            });
+          }
           (cls.longLeave || []).forEach(sid => { cls.draft.att[sid] = { status: 'leave', leave: 'w', auto: true }; });
           S.save(); refresh(); U.toast('已全部恢复为出勤（长期请假仍标未回校）', 'ok');
         });
@@ -676,10 +693,9 @@
     if (st === 'early') node.classList.add(a.early === 'bad' ? 'early-bad' : 'early-ok');
 
     // 行为标签：默认隐藏（点工具栏「显示色标」才显示）；
-    // 当场标红的、以及本节课已经记满 3 项违纪的，始终显示（当场就能看到，不用等保存）
+    // 本节课当场计过红档的（违纪满3自动 / 手动标红）不受开关影响，全红后不再马上显示
     if (A.tagSys) {
-      const onStage = A.tagSys.markedNow(cls, sid) || A.tagSys.violNow(cls, sid) >= 3;
-      const tagBg = onStage ? A.tagSys.bg(cls, sid, 1)
+      const tagBg = A.tagSys.showNow(cls, sid) ? A.tagSys.bg(cls, sid)
         : (S.load().showTags ? A.tagSys.bg(cls, sid) : '');
       if (tagBg) node.style.background = tagBg;
     }

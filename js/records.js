@@ -75,6 +75,7 @@
       homework: hw,
       moves: d.moves.slice(),
       redMarked: (d.redMark || []).slice(),   // 本节课当场写过保证书（标红）的学生
+      redCounted: Object.assign({}, d.redCounted || {}), // 本节课已当场计档的学生（去重用）
       note: d.note || ''
     };
   }
@@ -973,6 +974,6 @@
     U.download('课堂记录汇总-' + cls.name + (tag ? '-' + tag : '') + '.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv');
   }
 
-  A.records = { render, saveCurrentLesson, exportAll };
+  A.records = { render, saveCurrentLesson, exportAll, collapseAll: () => { state.open = {}; } };
 
 })(window.App);

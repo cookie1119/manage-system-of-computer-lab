@@ -1338,10 +1338,11 @@ window.App = window.App || {};
     if (st.r === 4) st.rb = 0;
   }
 
-  /** 保存一条新课记录后推进全班标签。rec.redMarked 是本节课当场标过红（写保证书）的学号。 */
+  /** 保存一条新课记录后推进全班标签。违纪满 3 的档在课堂上已当场计过（rec.redCounted），保存时不重复。 */
   TAG.onNewRecord = function (cls, rec) {
     if (!cls || !rec) return;
     const marked = rec.redMarked || [];
+    const counted = rec.redCounted || {};
     S.activeStudents(cls).forEach(sid => {
       const st = tagState(cls, sid);
       // 值日：黄带只累计到第 3 次，第 4 次起转红（之后每次再犯红档继续 +1）
@@ -1349,8 +1350,8 @@ window.App = window.App || {};
         st.d += 1;
         if (st.d >= 4) redUp(st);
       }
-      // 违纪达标（≥3 项）或老师当场标过红 → 这节课 +1 档红（一节课只计一次）
-      if (TAG.violCount(rec, sid) >= 3 || marked.indexOf(sid) >= 0) redUp(st);
+      // 违纪达标（≥3 项）或当场写过保证书：这节课 +1 档红；当场已经计过的不再重复
+      if ((TAG.violCount(rec, sid) >= 3 || marked.indexOf(sid) >= 0) && !counted[sid]) redUp(st);
     });
   };
 
@@ -1359,6 +1360,7 @@ window.App = window.App || {};
     const st = (cls.tags || {})[String(sid)];
     if (!st) return [];
     const list = [];
+    if (st.letter) list.push('letterDone');             // 待写保证书：跨课保留，点了才消失
     if (st.d >= 1 && st.d <= 3) list.push('dutyFix');   // 已转红（d≥4）的清不了
     if (st.r === 4 && st.rb < 3) list.push('redBack');
     return list;
@@ -1367,23 +1369,73 @@ window.App = window.App || {};
   /** 执行按钮动作，成功返回 true */
   TAG.doAction = function (cls, sid, act) {
     const st = tagState(cls, sid);
+    if (act === 'letterDone' && st.letter) { st.letter = 0; return true; }
     if (act === 'dutyFix' && st.d >= 1 && st.d <= 3) { st.d = 0; return true; }
     if (act === 'redBack' && st.r === 4 && st.rb < 3) { st.rb++; return true; }
     return false;
   };
 
-  /** 当场标红 / 取消：记在当节课草稿里，下课保存时才计入红档 */
-  TAG.markNow = function (cls, sid, on) {
+  /** 当场计 1 档红：立即 r+1，并记入本节课草稿（一节课只计一次）。
+      kind='auto'（违纪满3自动）| 'hand'（手动当场标红）。
+      返回是否应该"马上标红"显示 —— 全红之后不再马上显示，只跟着色标开关。 */
+  TAG.stageNow = function (cls, sid, kind) {
     if (!cls.draft) return false;
-    const m = cls.draft.redMark = cls.draft.redMark || [];
-    const i = m.indexOf(sid);
-    if (on && i < 0) { m.push(sid); return true; }
-    if (!on && i >= 0) { m.splice(i, 1); return true; }
-    return false;
+    const d = cls.draft;
+    d.redCounted = d.redCounted || {};
+    if (d.redCounted[sid]) return false;   // 一节课只加一档
+    d.redCounted[sid] = kind === 'hand' ? 'hand' : 'auto';
+    if (kind === 'hand') {                  // 手动标红 = 当场写保证书，记入本节名单（记录页/导出用）
+      const m = d.redMark = d.redMark || [];
+      if (m.indexOf(sid) < 0) m.push(sid);
+    }
+    const st = tagState(cls, sid);
+    const wasFull = st.r >= 4;
+    redUp(st);                              // 全红后再犯：只清回退进度
+    st.letter = 1;                          // 待写保证书（跨课保留）
+    return !wasFull;
   };
-  /** 本节课是否已当场标红 */
-  TAG.markedNow = function (cls, sid) {
-    return !!(cls.draft && (cls.draft.redMark || []).indexOf(sid) >= 0);
+
+  /** 本节课是否已当场计过档 */
+  TAG.stagedNow = function (cls, sid) {
+    return !!(cls.draft && cls.draft.redCounted && cls.draft.redCounted[sid]);
+  };
+
+  /** 违纪增减之后调用：满 3 项当场自动计档；自动计的档在违纪减回 3 项以下时自动退 */
+  TAG.autoStage = function (cls, sid) {
+    if (!cls.draft) return;
+    const d = cls.draft;
+    d.redCounted = d.redCounted || {};
+    if (TAG.violNow(cls, sid) >= 3) {
+      TAG.stageNow(cls, sid, 'auto');
+    } else if (d.redCounted[sid] === 'auto') {
+      delete d.redCounted[sid];
+      const st = tagState(cls, sid);
+      if (st.r > 0) st.r -= 1;
+      if (!st.r) st.letter = 0;
+    }
+  };
+
+  /** 撤销本节课当场计的档（点错了 / 恢复出勤） */
+  TAG.unstageNow = function (cls, sid) {
+    if (!cls.draft) return false;
+    const d = cls.draft;
+    d.redCounted = d.redCounted || {};
+    if (!d.redCounted[sid]) return false;
+    delete d.redCounted[sid];
+    const m = d.redMark || [];
+    const mi = m.indexOf(sid);
+    if (mi >= 0) m.splice(mi, 1);
+    const st = tagState(cls, sid);
+    if (st.r > 0) st.r -= 1;
+    st.letter = 0;
+    return true;
+  };
+
+  /** 本节课是否应该"马上标红"显示（不看色标开关）：当场计过档且还没到全红 */
+  TAG.showNow = function (cls, sid) {
+    if (!TAG.stagedNow(cls, sid)) return false;
+    const st = (cls.tags || {})[String(sid)] || {};
+    return (st.r || 0) < 4;
   };
 
   /** 状态一句话（菜单标题用） */
@@ -1396,8 +1448,9 @@ window.App = window.App || {};
     if (st.d >= 1 && st.d <= 3) parts.push('值日:' + D[st.d]);
     if (st.d >= 4) parts.push('值日:已转红（累计第' + st.d + '次）');
     const vn = TAG.violNow(cls, sid);
-    if (TAG.markedNow(cls, sid)) parts.push('本节课已当场标红');
-    else if (vn >= 3) parts.push('本节课已记' + vn + '项违纪（下课保存后 +1 档）');
+    if (TAG.stagedNow(cls, sid)) parts.push('本节课已计 1 档红');
+    else if (vn >= 3) parts.push('本节课已记' + vn + '项违纪');
+    if (st.letter) parts.push('待写保证书');
     return parts.join(' · ');
   };
 
