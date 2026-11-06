@@ -344,6 +344,12 @@ window.App = window.App || {};
       });
       A.seats.syncBroken(c);
     });
+    // 任课老师：单独维护一份名单（班级上的 teacher 只是归属标记，不在班级里填）
+    db.teachers = db.teachers || [];
+    db.classes.forEach(c => {
+      const t = String(c.teacher || '').trim();
+      if (t && db.teachers.indexOf(t) < 0) db.teachers.push(t);   // 旧数据里写在班上的老师，收进名单
+    });
     // 班级顺序：默认按“年级 → 班级号”，老师手动调过就一直保持他排的顺序
     db.classSortManual = !!db.classSortManual;
     db.groupCollapsed = db.groupCollapsed || {};   // 班级管理按老师分组时各组的收起状态

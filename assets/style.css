@@ -501,5 +501,8 @@ body.gated .topbar,body.gated #main{display:none !important}
 .group-head:hover{border-color:var(--line-strong)}
 .group-head .group-arrow{color:var(--primary);font-size:12px;width:12px;text-align:center}
 .group-head b{font-size:13.5px;color:var(--text)}
+.group-head .group-sp{flex:1}
+.group-head .btn{padding:2px 9px;font-size:12px;cursor:pointer}
+.empty-group{padding:0 14px 4px 34px}
 .group-head.closed{background:#f1f4f9}
 .group-head.closed b{color:var(--muted)}

@@ -436,46 +436,65 @@
             if (sorting) U.toast('拖动卡片，或点卡片上的“↑ 上移 / ↓ 下移”');
           }
         }),
-        U.el('button', { class: 'btn primary sm', text: '+ 新增班级', onclick: () => editClass(null) })
+        U.el('button', { class: 'btn sm ghost', text: '+ 新增班级', title: '不指定老师，放到「未分组」', onclick: () => editClass(null) }),
+        U.el('button', { class: 'btn primary sm', text: '+ 添加任课老师', onclick: addTeacher })
       ]),
       U.el('div', {
         class: 'small muted', style: { marginTop: '6px' },
         text: sorting
           ? '排序中：拖动卡片到目标位置，或点卡片上的“↑ 上移 / ↓ 下移”。调好后会一直保持你排的顺序，以后新加的班放在最后；点“恢复默认顺序”回到按年级、班级号排列。'
-          : '这里相当于一本册子的目录：每个班是册子里的一个区，点“进入该班”后，顶部会出现该班的“考勤 / 作业批改 / 课堂记录 / 期末总评”标签页。默认按年级、班级号排序，点“调整顺序”可以自己排。'
+          : '这里相当于一本册子的目录：每个班是册子里的一个区，点“进入该班”后，顶部会出现该班的“考勤 / 作业批改 / 课堂记录 / 期末总评”标签页。先点“+ 添加任课老师”建好老师，再点老师那一行的“+ 添加班级”，新班就归到这位老师名下。'
       })
     ]);
     root.appendChild(head);
 
-    // 按任教老师分组：只要有班填了老师就启用（排序模式保持平铺，方便拖动）
-    const grouped = !sorting && db.classes.some(c => String(c.teacher || '').trim());
+    // 有任课老师就按老师分组（排序模式保持平铺，方便拖动）
+    const grouped = !sorting && (db.teachers.length > 0 || db.classes.some(c => String(c.teacher || '').trim()));
     if (!grouped) {
       const grid = U.el('div', { class: 'class-grid' });
       db.classes.forEach((c, i) => grid.appendChild(classCard(c, i, db)));
       root.appendChild(grid);
     } else {
       const collapsed = db.groupCollapsed = db.groupCollapsed || {};
-      const groups = [], idx = {};
+      // 组 = 老师名单里的每一位（没班也显示，方便往里加）+ 未分组的班
+      const groups = db.teachers.map(t => ({ name: t, list: [], isTeacher: true }));
+      const byName = {};
+      groups.forEach(g => { byName[g.name] = g; });
+      const loose = [];
       db.classes.forEach(c => {
-        const t = String(c.teacher || '').trim() || '未分组';
-        if (idx[t] === undefined) { idx[t] = groups.length; groups.push({ name: t, list: [] }); }
-        groups[idx[t]].list.push(c);
+        const t = String(c.teacher || '').trim();
+        if (t && byName[t]) byName[t].list.push(c);
+        else loose.push(c);
       });
-      groups.sort((a, b) => (a.name === '未分组' ? 1 : 0) - (b.name === '未分组' ? 1 : 0));
+      if (loose.length) groups.push({ name: '未分组', list: loose, isTeacher: false });
       groups.forEach(g => {
         const open = !collapsed[g.name];
         const head = U.el('div', { class: 'group-head' + (open ? '' : ' closed') }, [
           U.el('span', { class: 'group-arrow', text: open ? '▾' : '▸' }),
-          U.el('b', { text: g.name === '未分组' ? '未分组（编辑班级可填任教老师）' : g.name }),
-          U.el('span', { class: 'small muted', text: g.list.length + ' 个班' })
+          U.el('b', { text: g.name }),
+          U.el('span', { class: 'small muted', text: g.list.length + ' 个班' }),
+          U.el('span', { class: 'group-sp' }),
+          U.el('button', {
+            class: 'btn sm ghost', text: '+ 添加班级',
+            title: g.isTeacher ? '在这个老师下面加一个班' : '新增一个不归属任何老师的班',
+            onclick: e => { e.stopPropagation(); editClass(null, { teacher: g.isTeacher ? g.name : '' }); }
+          }),
+          g.isTeacher ? U.el('button', {
+            class: 'btn sm ghost', text: '⋯', title: '重命名 / 移入已有班级 / 删除老师',
+            onclick: e => { e.stopPropagation(); teacherMenu(e.currentTarget, g.name); }
+          }) : null
         ]);
         // 当前展开（open=true）→ 点一下收起（记 true）；当前收起 → 点一下展开（记 false）
         head.onclick = () => { collapsed[g.name] = open; S.save(); render(); };
         root.appendChild(head);
         if (open) {
-          const grid = U.el('div', { class: 'class-grid' });
-          g.list.forEach(c => grid.appendChild(classCard(c, db.classes.indexOf(c), db)));
-          root.appendChild(grid);
+          if (!g.list.length) {
+            root.appendChild(U.el('div', { class: 'small muted empty-group', text: '还没有班级，点上面的「+ 添加班级」' }));
+          } else {
+            const grid = U.el('div', { class: 'class-grid' });
+            g.list.forEach(c => grid.appendChild(classCard(c, db.classes.indexOf(c), db)));
+            root.appendChild(grid);
+          }
         }
       });
     }
@@ -494,7 +513,7 @@
     }, [
       sorting ? U.el('div', { class: 'sort-badge', html: '☰ 第 <b>' + (i + 1) + '</b> 位' }) : null,
       U.el('h4', {}, [U.el('span', { text: c.name }), c.id === db.currentClassId ? U.el('span', { class: 'pill ok', style: { marginLeft: '8px' }, text: '当前' }) : null]),
-      U.el('div', { class: 'class-meta', text: c.studentCount + ' 人 · ' + c.room + ' 号机房 · 已上 ' + (c.lessonCount || 0) + ' 节 · 记录 ' + c.records.length + ' 条' + (String(c.teacher || '').trim() ? ' · 老师：' + c.teacher : '') }),
+      U.el('div', { class: 'class-meta', text: c.studentCount + ' 人 · ' + c.room + ' 号机房 · 已上 ' + (c.lessonCount || 0) + ' 节 · 记录 ' + c.records.length + ' 条' }),
       U.el('div', { class: 'class-meta', text: '花名册：' + (named ? '已录入 ' + named + ' 人' : '未上传') + ' · 作业要求 ' + c.homeworkReq.length + ' 项' }),
       specialRow(c),
       sorting ? sortActions(i, db.classes.length) : normalActions(c, db)
@@ -502,8 +521,6 @@
     if (sorting) bindDrag(card, i);
     return card;
   }
-
-  /** 分组渲染：按任教老师分组（保持班级原有顺序），没填老师的归「未分组」放最后；组头可收起 */
 
   /* 长期请假 / 转学 名单（可恢复） */
   function specialRow(c) {
@@ -545,9 +562,11 @@
     return box;
   }
 
-  function editClass(cls) {
+  /** 新增 / 编辑班级。preset 只在新增时用：{ teacher } 表示这个班归哪位老师 */
+  function editClass(cls, preset) {
     const isNew = !cls;
     const data = cls || { name: '', grade: '初一', classNo: S.load().classes.length + 1, studentCount: 54, room: '1' };
+    const presetTeacher = (preset && preset.teacher) || '';
     const gradeSel = U.el('select', { class: 'input' }, ['初一', '初二'].map(g =>
       U.el('option', { value: g, text: g, selected: (data.grade || '初一') === g ? 'selected' : null })));
     const classNoOpts = [];
@@ -558,15 +577,14 @@
       value: r.no, text: r.name + '（前缀 ' + r.no + '）', selected: String(data.room || '1') === r.no ? 'selected' : null
     }));
     const roomSel = U.el('select', { class: 'input' }, roomOpts.length ? roomOpts : [U.el('option', { value: '1', text: '1 号机房' })]);
-    const teacherInput = U.el('input', { class: 'input', value: data.teacher || '', placeholder: '任课老师姓名（留空则不参与分组）', maxlength: '20' });
 
     const body = U.el('div', {}, [
+      presetTeacher ? U.el('div', { class: 'small', style: { marginBottom: '8px', color: '#2563eb' }, html: '新班级会归到 <b>' + presetTeacher + '</b> 名下；要换老师，到班级管理页用组头的「⋯」调整。' }) : null,
       U.el('div', { class: 'form-grid' }, [
         U.el('div', { class: 'field' }, [U.el('label', { text: '年级（作业命名：初一 c1 / 初二 c2）' }), gradeSel]),
         U.el('div', { class: 'field' }, [U.el('label', { text: '班级（1-21）' }), classNoSel]),
         U.el('div', { class: 'field' }, [U.el('label', { text: '人数（1-60）' }), countInput]),
-        U.el('div', { class: 'field' }, [U.el('label', { text: '机房（决定作业文件夹前缀）' }), roomSel]),
-        U.el('div', { class: 'field' }, [U.el('label', { text: '任教老师（首页按老师分组显示）' }), teacherInput])
+        U.el('div', { class: 'field' }, [U.el('label', { text: '机房（决定作业文件夹前缀）' }), roomSel])
       ]),
       U.el('div', { class: 'small muted', style: { marginTop: '10px' }, text: '座位规则：1-10 号坐 A1-A10，11-20 坐 B1-B10，…41-50 坐 E1-E10，51 起坐 A11、B11…' })
     ]);
@@ -582,13 +600,12 @@
             const grade = gradeSel.value;
             const classNo = parseInt(classNoSel.value, 10);
             const room = roomSel.value || '1';
-            const teacher = teacherInput.value.trim();
             const name = S.classNameOf(grade, classNo);
             if (isNew) {
               const nc = S.newClass(name);
               nc.studentCount = count;
               nc.grade = grade; nc.classNo = classNo; nc.room = room;
-              nc.teacher = teacher;
+              nc.teacher = presetTeacher;
               SE.syncBroken(nc);
               nc.seats = SE.buildLessonSeats(nc).seats;
               const db = S.load();
@@ -598,7 +615,6 @@
               cls.name = name;
               cls.grade = grade;
               cls.classNo = classNo;
-              cls.teacher = teacher;
               const roomChanged = String(cls.room) !== String(room);
               cls.room = room;
               if (roomChanged) SE.syncBroken(cls);
@@ -620,7 +636,117 @@
     });
   }
 
-  A.classAdmin = { newTerm, archiveAndStart, editClass, termBar, archiveArea };
+  /* ---------- 任课老师：独立名单，班级只是挂在他下面 ---------- */
+  function addTeacher() {
+    const input = U.el('input', { class: 'input', placeholder: '如 张老师 / 李老师', maxlength: '20' });
+    U.modal({
+      title: '添加任课老师',
+      body: U.el('div', {}, [
+        U.el('div', { class: 'field' }, [U.el('label', { text: '老师姓名' }), input]),
+        U.el('div', { class: 'small muted', style: { marginTop: '8px' }, text: '添加后，这位老师下面会出现「+ 添加班级」，新建的班自动归到他名下。' })
+      ]),
+      buttons: [
+        { label: '取消' },
+        {
+          label: '添加', cls: 'primary', onClick: () => {
+            const name = input.value.trim();
+            if (!name) { U.toast('请填写老师姓名', 'err'); return false; }
+            const db = S.load();
+            if (db.teachers.indexOf(name) >= 0) { U.toast('已经有这位老师了', 'err'); return false; }
+            db.teachers.push(name);
+            S.save(); render(); U.toast('已添加 ' + name + '，点他那一行的「+ 添加班级」', 'ok');
+          }
+        }
+      ]
+    });
+    if (input.focus) input.focus();
+  }
+
+  function teacherMenu(btn, name) {
+    const db = S.load();
+    const n = db.classes.filter(c => String(c.teacher || '').trim() === name).length;
+    U.popover(btn, {
+      title: name + '（' + n + ' 个班）',
+      list: [
+        { label: '重命名老师', on: () => renameTeacher(name) },
+        { label: '把已有班级移入', cls: 'blue', on: () => moveInto(name) },
+        { label: '删除老师（班级移到未分组）', cls: 'danger', on: () => delTeacher(name) }
+      ]
+    });
+  }
+
+  function renameTeacher(name) {
+    const input = U.el('input', { class: 'input', value: name, maxlength: '20' });
+    U.modal({
+      title: '重命名任课老师',
+      body: U.el('div', { class: 'field' }, [U.el('label', { text: '老师姓名' }), input]),
+      buttons: [
+        { label: '取消' },
+        {
+          label: '保存', cls: 'primary', onClick: () => {
+            const nv = input.value.trim();
+            if (!nv) { U.toast('请填写老师姓名', 'err'); return false; }
+            const db = S.load();
+            if (nv !== name && db.teachers.indexOf(nv) >= 0) { U.toast('已经有这位老师了', 'err'); return false; }
+            const i = db.teachers.indexOf(name);
+            if (i < 0) return false;
+            db.teachers[i] = nv;
+            db.classes.forEach(c => { if (String(c.teacher || '').trim() === name) c.teacher = nv; });
+            if (db.groupCollapsed[name] !== undefined) { db.groupCollapsed[nv] = db.groupCollapsed[name]; delete db.groupCollapsed[name]; }
+            S.save(); render(); U.toast('已改名为 ' + nv, 'ok');
+          }
+        }
+      ]
+    });
+  }
+
+  function delTeacher(name) {
+    const db = S.load();
+    const n = db.classes.filter(c => String(c.teacher || '').trim() === name).length;
+    U.confirm('删除任课老师「' + name + '」？' +
+      (n ? '他名下的 ' + n + ' 个班会移到「未分组」，班级和课堂记录都不会删。' : '这位老师下面还没有班级。'), () => {
+        db.teachers = db.teachers.filter(t => t !== name);
+        db.classes.forEach(c => { if (String(c.teacher || '').trim() === name) c.teacher = ''; });
+        delete db.groupCollapsed[name];
+        S.save(); render(); U.toast('已删除 ' + name, 'ok');
+      });
+  }
+
+  /** 把其它班级挂到这位老师名下（多选） */
+  function moveInto(name) {
+    const db = S.load();
+    const cands = db.classes.filter(c => String(c.teacher || '').trim() !== name);
+    if (!cands.length) { U.toast('所有班级都在这位老师名下了', 'ok'); return; }
+    const boxes = {};
+    const list = U.el('div', {}, cands.map(c => {
+      const cb = U.el('input', { type: 'checkbox' });
+      boxes[c.id] = cb;
+      const owner = String(c.teacher || '').trim();
+      return U.el('label', { class: 'small', style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '5px 0' } }, [
+        cb, U.el('span', { text: c.name + '（' + (owner || '未分组') + '）' })
+      ]);
+    }));
+    U.modal({
+      title: '把班级移入「' + name + '」',
+      body: U.el('div', {}, [
+        U.el('div', { class: 'small muted', style: { marginBottom: '6px' }, text: '勾选要归到这位老师名下的班级，可多选。' }),
+        list
+      ]),
+      buttons: [
+        { label: '取消' },
+        {
+          label: '确认移入', cls: 'primary', onClick: () => {
+            let n = 0;
+            cands.forEach(c => { if (boxes[c.id].checked) { c.teacher = name; n++; } });
+            if (!n) { U.toast('没有勾选班级', 'err'); return false; }
+            S.save(); render(); U.toast('已把 ' + n + ' 个班移入 ' + name, 'ok');
+          }
+        }
+      ]
+    });
+  }
+
+  A.classAdmin = { newTerm, archiveAndStart, editClass, termBar, archiveArea, addTeacher };
 
   function renderAll() {
     A.views.renderAttendance();
