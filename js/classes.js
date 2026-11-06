@@ -256,6 +256,8 @@
       db.term.semester = 2;
       db.classes.forEach(c => {
         c.records = []; c.draft = null; c.lessonCount = 0; c.lastSeats = null;
+        // 新学期重新开始：行为标签（红档/值日/回退）不跨学期，上学期那份在归档里
+        c.tags = {}; c.tagsV = 2;
         // 新学年/新学期：不可用的记录可能已经到期或被清空，统一结算一遍，
         // 座位修好的同学自动回到自己的座位，还坏着的按规则另安排
         c.seats = SE.buildLessonSeats(c).seats;
