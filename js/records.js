@@ -777,9 +777,12 @@
               U.confirm('删除第 ' + r.termNo + ' 次课的记录？', () => {
                 const i = cls.records.indexOf(r);
                 if (i >= 0) cls.records.splice(i, 1);
+                // 按被删记录的内容合理回退行为标签（值日 d-1、违纪达标/当场标红 r-1）
+                if (A.tagSys) A.tagSys.onDeleteRecord(cls, r);
                 // 删完要同步“已上 N 节”：班级管理首页、期末总评都读这个数
                 syncLessonCount(cls);
                 S.save(); render();
+                U.toast('已删除第 ' + r.termNo + ' 次课记录，相关学生的行为标签已回退', 'ok');
               });
             }
           })

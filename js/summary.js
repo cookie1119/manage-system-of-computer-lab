@@ -79,12 +79,13 @@
         leaveN: leaveN, lessonTotal: lessonTotal, longLeave: longLeave
       });
     });
-    // 全红（r===4）：课堂表现按回退进度覆盖 —— 每回退一档 +20，封顶 60，没回退过就是 0
+    // 全红（违纪/值日合计红档 ≥4）：课堂表现按回退进度覆盖 —— 每回退一档 +20，封顶 80，没回退过就是 0
+    // ¼/½/¾ 红不扣分，也没有回退；色标只是提醒老师再犯次数和惩罚加码程度
     rows.forEach(x => {
       const st = (cls.tags || {})[String(x.sid)];
-      if (st && st.r === 4) {
-        x.perf = Math.min(60, st.rb * 20);
-        x.pLog.unshift('全红：平时分 = 回退 ' + st.rb + ' 次 × 20（封顶 60）');
+      if (st && A.tagSys && A.tagSys.totalRed(st) >= 4) {
+        x.perf = Math.min(80, st.rb * 20);
+        x.pLog.unshift('全红：平时分 = 回退 ' + st.rb + ' 次 × 20（封顶 80）');
       }
     });
     const w = cfg().weights;
