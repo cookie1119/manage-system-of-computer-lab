@@ -143,6 +143,7 @@ main{padding:12px 16px 40px}
   font-size:10px;font-weight:700;color:#64748b;background:#fff;cursor:help;
 }
 .tag-info:hover{background:#f1f5f9;border-color:#94a3b8;color:#475569}
+.tag-info.open{background:#f1f5f9;border-color:#94a3b8;color:#475569}
 .tag-info::after{
   content:attr(data-tip);
   position:absolute;left:2px;right:2px;bottom:calc(100% + 4px);z-index:40;
@@ -151,7 +152,7 @@ main{padding:12px 16px 40px}
   opacity:0;visibility:hidden;transition:opacity .12s ease;
   pointer-events:none;
 }
-.tag-info:hover::after{opacity:1;visibility:visible}
+.tag-info.open::after,.tag-info:hover::after{opacity:1;visibility:visible}
 .s-btns{display:flex;gap:3px}
 .abtn{
   flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;

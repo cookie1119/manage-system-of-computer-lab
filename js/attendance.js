@@ -728,14 +728,22 @@
     nameBtn.addEventListener('click', e => { e.stopPropagation(); openStudentMenu(nameBtn, cls, sid); });
     top.appendChild(nameBtn);
 
-    // 色标备注：只在鼠标悬停时以浮层显示，平时只占一个圆圈叹号，不压色带
+    // 色标备注：平时只占一个圆圈叹号，不压色带。悬停浮出，点一下锁定（再点/点别处/Esc 关闭），
+    // 投影、触屏没有 hover 也能看。
     if (tagTip) {
-      top.appendChild(U.el('span', {
+      const info = U.el('span', {
         class: 'tag-info',
         text: '!',
         'data-tip': tagTip,
         'aria-label': '色标状态：' + tagTip
-      }));
+      });
+      info.addEventListener('click', e => {
+        e.stopPropagation();
+        const wasOpen = info.classList.contains('open');
+        document.querySelectorAll('.tag-info.open').forEach(n => n.classList.remove('open'));
+        if (!wasOpen) info.classList.add('open');
+      });
+      top.appendChild(info);
     }
 
     const aN = countOf(a.award);
@@ -1037,5 +1045,15 @@
       });
     }, 20000);
   }
+
+  // 点开锁定的叹号备注：点别处 / 按 Esc 统一收起（叹号自身已 stopPropagation，不会走到这里）
+  document.addEventListener('click', e => {
+    if (e.target && e.target.closest && e.target.closest('.tag-info')) return;
+    U.$$('.tag-info.open').forEach(n => n.classList.remove('open'));
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    U.$$('.tag-info.open').forEach(n => n.classList.remove('open'));
+  });
 
 })(window.App);
