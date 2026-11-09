@@ -1633,7 +1633,7 @@ window.App = window.App || {};
     return TAG.shownRed(st) < 4;
   };
 
-  /** 状态一句话（菜单标题用） */
+  /** 状态一句话（座位「圆圈叹号」的悬停备注用：一切细节只在这里说，卡片上不占地方） */
   TAG.stateText = function (cls, sid) {
     const st = (cls.tags || {})[String(sid)] || { d: 0, r: 0, rb: 0 };
     const R = ['', '¼红', '½红', '¾红', '全红'];
@@ -1641,11 +1641,13 @@ window.App = window.App || {};
     const parts = [];
     const sr = TAG.shownRed(st), tr = TAG.totalRed(st);
     if (sr) parts.push('红:' + R[sr] + (tr >= 4 && st.rb ? '（已回退' + st.rb + '档）' : ''));
+    const dutyOpen = st.d >= 1 && st.d <= 3;
     if (st.d >= 1 && st.d <= 3) parts.push('值日:' + D[st.d]);
     if (st.d >= 4) parts.push('值日:已转红（累计第' + st.d + '次）');
     const vn = TAG.violNow(cls, sid);
     if (TAG.stagedNow(cls, sid)) parts.push('本节课已计 1 档红');
     else if (vn >= 3) parts.push('本节课已记' + vn + '项违纪');
+    if (dutyOpen) parts.push('待整改值日');
     if (st.letter) parts.push('待写保证书');
     return parts.join(' · ');
   };

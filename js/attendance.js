@@ -425,8 +425,8 @@
         });
       }
     });
-    const tagTip = A.tagSys ? A.tagSys.stateText(cls, sid) : '';
-    U.popover(node, { title: sid + '号 ' + (SE.name(cls, sid) || '') + '　座位 ' + SE.seatOfStudent(cls, sid) + (tagTip ? '　【' + tagTip + '】' : ''), list: items });
+    // 渐进式披露：色标细节只在座位的「圆圈叹号」里看，点名字只给操作，不再重复一遍
+    U.popover(node, { title: sid + '号 ' + (SE.name(cls, sid) || '') + '　座位 ' + SE.seatOfStudent(cls, sid), list: items });
   }
 
   /* ---------- 电脑不可用 / 座次长期调整 ---------- */
