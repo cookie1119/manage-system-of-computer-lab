@@ -702,10 +702,16 @@
 
     // 行为标签：未上课跟「显示色标」开关；上课期间两类强制显示（无视开关）——
     // ① 本节课当场计过红档的红（全红除外）；② 上节课值日积累、还没整改的黄标（转红后跟开关）。
-    // 用 backgroundImage 叠加，保留座位本身的底色，渐变末端已用 transparent 截断成真实格子宽
+    // 用 backgroundImage 叠加，保留座位本身的底色，渐变末端已用 transparent 截断成真实格子宽。
+    // 两层色带上下分开：第一层（红）占上半，第二层（黄）占下半，互不遮挡、互不挤压。
     if (A.tagSys) {
       const tagBg = (A.tagSys.autoShow(cls, sid) || S.load().showTags) ? A.tagSys.bg(cls, sid) : '';
-      if (tagBg) node.style.backgroundImage = tagBg;
+      if (tagBg) {
+        node.style.backgroundImage = tagBg;
+        node.style.backgroundSize = '100% 50%, 100% 50%';
+        node.style.backgroundRepeat = 'no-repeat, no-repeat';
+        node.style.backgroundPosition = '0 0, 0 100%';
+      }
     }
 
     const isLong = (cls.longLeave || []).indexOf(sid) >= 0;

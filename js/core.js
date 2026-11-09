@@ -1650,8 +1650,19 @@ window.App = window.App || {};
     return parts.join(' · ');
   };
 
-  /** 座位标签背景：从左往右的分带渐变（红带在前、黄带补右），没有可见标签返回 ''。
-      plus=1 时预览“当场标红后”的样子（红档临时 +1）。 */
+  /** 一层色带的渐变：左侧实色占 w（0~1），末段 1% 柔和过渡到透明，后面留空 */
+  const TAG_EMPTY_LAYER = 'linear-gradient(90deg,transparent 0%,transparent 100%)';
+  function tagBand(color, w) {
+    if (w >= 1) return 'linear-gradient(90deg,' + color + ' 0%,' + color + ' 100%)';
+    const to = Math.round(w * 100);
+    const t = Math.max(0, to - 1);
+    return 'linear-gradient(90deg,' + color + ' 0%,' + color + ' ' + t + '%,transparent ' + to + '%)';
+  }
+
+  /** 色标背景：**上半部分显示红档、下半部分显示黄档**，各自按格数占宽、互不遮挡
+      （红 0~4 格 = 0/¼/½/¾/全红；黄 0~3 格 = 已“揭示”的值日次数）。
+      返回两层 background-image，缺的那层用透明占位，保证上下各占一半。
+      没有可见标签返回 ''。plus=1 时预览“当场标红后”的样子。 */
   TAG.bg = function (cls, sid, plus) {
     let st = (cls.tags || {})[String(sid)];
     if (!st) {
@@ -1664,27 +1675,10 @@ window.App = window.App || {};
     const visTotal = st.r + (dVis >= 4 ? dVis : 0);
     let red = Math.max(0, Math.min(4, visTotal) - st.rb);
     if (plus) red = Math.min(4, red + plus);
-    const yellow = (dVis >= 1 && dVis <= 3) ? dVis : 0;      // 转红后黄带不再显示（记忆保留）
-    if (red <= 0 && yellow <= 0) return '';
-    const wR = red / 4;
-    const wY = Math.max(0, Math.min(yellow / 4, 1 - wR));    // 红优先占位，黄只补右侧剩余
-    const bands = [];
-    if (wR > 0) bands.push([TAG_COLOR.red, wR]);
-    if (wY > 0) bands.push([TAG_COLOR.yellow, wY]);
-    // 每段之间留 1.5% 的柔和过渡，末尾必须用 transparent 截断，
-    // 否则 CSS 渐变会把最后一个颜色自动铺满整条（“¼黄显示成一整条”就是这个原因）
-    let acc = 0;
-    const parts = [];
-    bands.forEach((b, i) => {
-      const from = acc * 100, to = (acc + b[1]) * 100;
-      const isLast = i === bands.length - 1;
-      const f = Math.round(from + (i ? 1.5 : 0));
-      const t = Math.round(to - ((isLast && to < 100) || !isLast ? 1.5 : 0));
-      parts.push(b[0] + ' ' + f + '%', b[0] + ' ' + t + '%');
-      acc += b[1];
-    });
-    if (acc < 1) parts.push('transparent ' + Math.round(acc * 100) + '%');
-    return 'linear-gradient(90deg,' + parts.join(',') + ')';
+    const yellow = (dVis >= 1 && dVis <= 3) ? dVis : 0;
+    if (!red && !yellow) return '';
+    return (red ? tagBand(TAG_COLOR.red, red / 4) : TAG_EMPTY_LAYER) + ',' +
+      (yellow ? tagBand(TAG_COLOR.yellow, yellow / 4) : TAG_EMPTY_LAYER);
   };
 
   // 每次打开页面都按课堂记录重算一遍：记录删光的班级（如“记录没了色标还在”的班）立即清零
