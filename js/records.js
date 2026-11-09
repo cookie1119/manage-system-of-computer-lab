@@ -767,7 +767,7 @@
           U.el('button', {
             class: 'btn sm', text: '编辑', onclick: e => {
               e.stopPropagation();
-              openEditor(cls, r, false, () => { syncLessonCount(cls); S.save(); render(); U.toast('已更新第 ' + r.termNo + ' 次课记录', 'ok'); });
+              openEditor(cls, r, false, () => { syncLessonCount(cls); if (A.tagSys) A.tagSys.rebuild(cls); S.save(); render(); U.toast('已更新第 ' + r.termNo + ' 次课记录', 'ok'); });
             }
           }),
           U.el('button', { class: 'btn sm ghost', text: '导出本节 CSV', onclick: e => { e.stopPropagation(); exportOne(cls, r); } }),

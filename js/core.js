@@ -303,9 +303,9 @@ window.App = window.App || {};
       c.roster = c.roster || {};
       c.homeworkReq = c.homeworkReq || [];
       c.records = c.records || [];
-      if (c.tagsV !== 3) {
+      if (c.tagsV !== 4) {
         // 第 1 版标签（黄/橙/隐藏 + ⅓红渐变）先迁到第 2 版（¼ 分档 · 左右渐变）
-        if (c.tagsV !== 2) {
+        if (c.tagsV !== 3) {
           const t1 = c.tags || {};
           const t2 = {};
           Object.keys(t1).forEach(k => {
@@ -327,7 +327,25 @@ window.App = window.App || {};
           if ((st.d || 0) >= 4) st.r = Math.max(0, (st.r || 0) - (st.d - 3));
           if ((st.rb || 0) > 4) st.rb = 4;
         });
-        c.tagsV = 3;
+        // 第 3 版 → 第 4 版：标签改为「从课堂记录重算」（记录是唯一事实源），
+        // 先按当前可见状态种下老师已处理的记忆：df=已整改值日数、lf=已写保证书时的红档数
+        const recs = c.records || [];
+        Object.keys(c.tags || {}).forEach(k => {
+          const st = c.tags[k];
+          if (!st) return;
+          const sid = parseInt(k, 10) || 0;
+          let dc = 0, rc = 0;
+          recs.forEach(rec => {
+            if ((rec.violations || []).some(v => v && v.sid === sid &&
+                (v.list || []).some(it => it && it.type === '值日' && (it.n || 0) > 0))) dc++;
+            const vn = (rec.violations || []).filter(v => v && v.sid === sid)
+              .reduce((n, v) => n + (v.list || []).reduce((m, it) => m + (parseInt(it.n, 10) || 0), 0), 0);
+            if (vn >= 3 || (rec.redMarked || []).indexOf(sid) >= 0) rc++;
+          });
+          st.df = Math.max(0, dc - (st.d || 0));        // 记录里有、但没显示的值日 = 已整改
+          if (!st.letter && rc > 0) st.lf = rc;         // 有红档但没弹待办 = 保证书已写过
+        });
+        c.tagsV = 4;
       }
       c.teacher = c.teacher || '';    // 任教老师（班级管理分组用）
       c.exam = c.exam || {};
@@ -1374,22 +1392,54 @@ window.App = window.App || {};
         if (st.d === 4) st.rb = 0;
       }
       // 违纪达标（≥3 项）或当场写过保证书：这节课 +1 档红；当场已经计过的不再重复
-      if ((TAG.violCount(rec, sid) >= 3 || marked.indexOf(sid) >= 0) && !counted[sid]) redUp(st);
+      if ((TAG.violCount(rec, sid) >= 3 || marked.indexOf(sid) >= 0) && !counted[sid]) {
+        redUp(st);
+        st.letter = 1;    // 有红档就有待写保证书（写过后由 lf 记忆挡住，重算不复活）
+      }
     });
   };
 
-  /** 删除一条课堂记录后按记录内容合理回退标签：
-      值日 → d-1；违纪达标/当场标红 → r-1（累计记忆随之减少）；退到非全红时回退进度清零。 */
-  TAG.onDeleteRecord = function (cls, rec) {
-    if (!cls || !rec) return;
-    const marked = rec.redMarked || [];
-    S.activeStudents(cls).forEach(sid => {
-      const st = tagState(cls, sid);
-      let changed = false;
-      if (dutyMarked(rec, sid) && st.d > 0) { st.d -= 1; changed = true; }
-      if ((TAG.violCount(rec, sid) >= 3 || marked.indexOf(sid) >= 0) && st.r > 0) { st.r -= 1; changed = true; }
-      if (changed && TAG.totalRed(st) < 4) st.rb = 0;
+  /** 从现有记录里数出该生的值日次数 / 红档事件数（重算用） */
+  function countFromRecords(cls, sid) {
+    let d = 0, r = 0;
+    (cls.records || []).forEach(rec => {
+      if (dutyMarked(rec, sid)) d++;
+      if (TAG.violCount(rec, sid) >= 3 || (rec.redMarked || []).indexOf(sid) >= 0) r++;
     });
+    return { d: d, r: r };
+  }
+
+  /** 以课堂记录为唯一事实源重算全班标签（删记录后 / 每次打开页面 / 云同步后）。
+      df=已整改的值日数、lf=已写保证书时的红档数 —— 老师手动处理的记忆，重算时保留，
+      所以整改过的黄标不会复活、写过的保证书不会再弹；再犯仍会正常重新累计。 */
+  TAG.rebuild = function (cls) {
+    if (!cls) return;
+    const t = cls.tags = cls.tags || {};
+    const active = {};
+    S.activeStudents(cls).forEach(sid => {
+      const k = String(sid);
+      active[k] = true;
+      const st = t[k] = t[k] || { d: 0, r: 0, rb: 0 };
+      // 本节课当场计过档但还没保存的：保留现场，只校正回退上限
+      if (TAG.stagedNow(cls, sid)) {
+        if ((st.rb || 0) > 4) st.rb = 4;
+        return;
+      }
+      const cnt = countFromRecords(cls, sid);
+      st.d = Math.max(0, cnt.d - (st.df || 0));
+      st.r = cnt.r;
+      st.letter = cnt.r > (st.lf || 0) ? 1 : 0;
+      if ((st.rb || 0) > 4) st.rb = 4;
+      if (TAG.totalRed(st) < 4) st.rb = 0;
+      if (!st.d && !st.r && !st.rb && !st.letter) delete t[k];
+    });
+    // 转学/不在名单的学生不再显示色标
+    Object.keys(t).forEach(k => { if (!active[k]) delete t[k]; });
+  };
+
+  /** 删除一条课堂记录后重算标签（值日 d-1、违纪达标/当场标红 r-1 的效果由重算自然得出） */
+  TAG.onDeleteRecord = function (cls, rec) {
+    TAG.rebuild(cls);
   };
 
   /** 名字菜单里该出现哪些按钮（当场标红与草稿有关，由考勤页单独加） */
@@ -1406,8 +1456,14 @@ window.App = window.App || {};
   /** 执行按钮动作，成功返回 true */
   TAG.doAction = function (cls, sid, act) {
     const st = tagState(cls, sid);
-    if (act === 'letterDone' && st.letter) { st.letter = 0; return true; }
-    if (act === 'dutyFix' && st.d >= 1 && st.d <= 3) { st.d = 0; return true; }
+    if (act === 'letterDone' && st.letter) {
+      st.lf = Math.max(st.lf || 0, st.r);   // 记住写到第几个红档，重算时不再弹（再犯会重新弹）
+      st.letter = 0; return true;
+    }
+    if (act === 'dutyFix' && st.d >= 1 && st.d <= 3) {
+      st.df = (st.df || 0) + st.d;          // 记住整改掉几次值日，重算时黄标不复活（再犯从头记）
+      st.d = 0; return true;
+    }
     if (act === 'redBack' && TAG.totalRed(st) >= 4 && st.rb < 4) { st.rb++; return true; }
     return false;
   };
@@ -1523,6 +1579,17 @@ window.App = window.App || {};
       acc += b[1];
     });
     return 'linear-gradient(90deg,' + parts.join(',') + ')';
+  };
+
+  // 每次打开页面都按课堂记录重算一遍：记录删光的班级（如“记录没了色标还在”的班）立即清零
+  document.addEventListener('DOMContentLoaded', () => {
+    try { (A.store.load().classes || []).forEach(c => TAG.rebuild(c)); } catch (err) { }
+  });
+  // 云端同步拉回来的数据同样重算，防止旧计数借同步“还魂”
+  const _applyRemote = S.applyRemote;
+  S.applyRemote = function (db) {
+    _applyRemote(db);
+    try { (S.load().classes || []).forEach(c => TAG.rebuild(c)); } catch (err) { }
   };
 
 
