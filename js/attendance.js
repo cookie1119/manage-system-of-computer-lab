@@ -366,7 +366,14 @@
           label: '值日已整改',
           on: () => {
             A.tagSys.doAction(cls, sid, act); S.save(); refresh();
-            U.toast(sid + '号 ' + nm + '：值日黄标已清零，再犯从头记录', 'ok');
+            U.toast(sid + '号 ' + nm + '：值日黄标已清零（整改已记入本节课，可撤销），再犯从头记录', 'ok');
+          }
+        });
+        if (act === 'dutyUndo') items.push({
+          label: '撤销整改',
+          on: () => {
+            const n = A.tagSys.undoFix(cls, sid); S.save(); refresh();
+            U.toast(sid + '号 ' + nm + '：已撤销最近一次整改，黄标恢复 ' + n + ' 格', 'ok');
           }
         });
         if (act === 'redBack') items.push({
@@ -547,7 +554,8 @@
         class: 'btn primary', text: '开始上课',
         onclick: () => {
           const nd = ensureDraft(cls, true);
-          if (A.records && A.records.collapseAll) A.records.collapseAll();   // 上节课的记录自动折叠
+          if (A.tagSys && A.tagSys.revealDuty) A.tagSys.revealDuty(cls);   // 上节课值日的黄标从现在起显示
+          if (A.records && A.records.collapseAll) A.records.collapseAll(); // 上节课的记录自动折叠
           render();
           U.toast('本学期第 ' + nd.termNo + ' 次课已开始 · ' + nd.time, 'ok');
           const badN = nd.moves.filter(m => m.reason !== 'return').length;
@@ -692,12 +700,12 @@
     node.classList.add(st);
     if (st === 'early') node.classList.add(a.early === 'bad' ? 'early-bad' : 'early-ok');
 
-    // 行为标签：默认隐藏（点工具栏「显示色标」才显示）；
-    // 本节课当场计过红档的（违纪满3自动 / 手动标红）不受开关影响，全红后不再马上显示
+    // 行为标签：未上课跟「显示色标」开关；上课期间两类强制显示（无视开关）——
+    // ① 本节课当场计过红档的红（全红除外）；② 上节课值日积累、还没整改的黄标（转红后跟开关）。
+    // 用 backgroundImage 叠加，保留座位本身的底色，渐变末端已用 transparent 截断成真实格子宽
     if (A.tagSys) {
-      const tagBg = A.tagSys.showNow(cls, sid) ? A.tagSys.bg(cls, sid)
-        : (S.load().showTags ? A.tagSys.bg(cls, sid) : '');
-      if (tagBg) node.style.background = tagBg;
+      const tagBg = (A.tagSys.autoShow(cls, sid) || S.load().showTags) ? A.tagSys.bg(cls, sid) : '';
+      if (tagBg) node.style.backgroundImage = tagBg;
     }
 
     const isLong = (cls.longLeave || []).indexOf(sid) >= 0;

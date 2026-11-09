@@ -303,9 +303,9 @@ window.App = window.App || {};
       c.roster = c.roster || {};
       c.homeworkReq = c.homeworkReq || [];
       c.records = c.records || [];
-      if (c.tagsV !== 4) {
+      if (c.tagsV !== 5) {
         // 第 1 版标签（黄/橙/隐藏 + ⅓红渐变）先迁到第 2 版（¼ 分档 · 左右渐变）
-        if (c.tagsV !== 3) {
+        if (c.tagsV !== 3 && c.tagsV !== 4) {
           const t1 = c.tags || {};
           const t2 = {};
           Object.keys(t1).forEach(k => {
@@ -322,30 +322,42 @@ window.App = window.App || {};
         }
         // 第 2 版 → 第 3 版：值日改为「转红即全红」（d≥4 时红档=d 直接参与合计），
         // r 里第 2 版记下的值日转红贡献要扣掉；回退上限放宽到 4 档（封顶 80 分）
-        Object.keys(c.tags || {}).forEach(k => {
-          const st = c.tags[k] || {};
-          if ((st.d || 0) >= 4) st.r = Math.max(0, (st.r || 0) - (st.d - 3));
-          if ((st.rb || 0) > 4) st.rb = 4;
-        });
+        if (c.tagsV !== 3 && c.tagsV !== 4) {
+          Object.keys(c.tags || {}).forEach(k => {
+            const st = c.tags[k] || {};
+            if ((st.d || 0) >= 4) st.r = Math.max(0, (st.r || 0) - (st.d - 3));
+            if ((st.rb || 0) > 4) st.rb = 4;
+          });
+        }
         // 第 3 版 → 第 4 版：标签改为「从课堂记录重算」（记录是唯一事实源），
         // 先按当前可见状态种下老师已处理的记忆：df=已整改值日数、lf=已写保证书时的红档数
-        const recs = c.records || [];
+        if (c.tagsV !== 4) {
+          const recs = c.records || [];
+          Object.keys(c.tags || {}).forEach(k => {
+            const st = c.tags[k];
+            if (!st) return;
+            const sid = parseInt(k, 10) || 0;
+            let dc = 0, rc = 0;
+            recs.forEach(rec => {
+              if ((rec.violations || []).some(v => v && v.sid === sid &&
+                  (v.list || []).some(it => it && it.type === '值日' && (it.n || 0) > 0))) dc++;
+              const vn = (rec.violations || []).filter(v => v && v.sid === sid)
+                .reduce((n, v) => n + (v.list || []).reduce((m, it) => m + (parseInt(it.n, 10) || 0), 0), 0);
+              if (vn >= 3 || (rec.redMarked || []).indexOf(sid) >= 0) rc++;
+            });
+            st.df = Math.max(0, dc - (st.d || 0));        // 记录里有、但没显示的值日 = 已整改
+            if (!st.letter && rc > 0) st.lf = rc;         // 有红档但没弹待办 = 保证书已写过
+          });
+        }
+        // 第 4 版 → 第 5 版：整改从计数记忆改为记录（dutyFixes，可撤销、随记录删除），
+        // 旧计数记忆改名 df0；新增 dPend（本节课刚记、还没“揭示”的值日格子）
         Object.keys(c.tags || {}).forEach(k => {
           const st = c.tags[k];
           if (!st) return;
-          const sid = parseInt(k, 10) || 0;
-          let dc = 0, rc = 0;
-          recs.forEach(rec => {
-            if ((rec.violations || []).some(v => v && v.sid === sid &&
-                (v.list || []).some(it => it && it.type === '值日' && (it.n || 0) > 0))) dc++;
-            const vn = (rec.violations || []).filter(v => v && v.sid === sid)
-              .reduce((n, v) => n + (v.list || []).reduce((m, it) => m + (parseInt(it.n, 10) || 0), 0), 0);
-            if (vn >= 3 || (rec.redMarked || []).indexOf(sid) >= 0) rc++;
-          });
-          st.df = Math.max(0, dc - (st.d || 0));        // 记录里有、但没显示的值日 = 已整改
-          if (!st.letter && rc > 0) st.lf = rc;         // 有红档但没弹待办 = 保证书已写过
+          if (st.df) { st.df0 = st.df; delete st.df; }
+          st.dPend = 0;
         });
-        c.tagsV = 4;
+        c.tagsV = 5;
       }
       c.teacher = c.teacher || '';    // 任教老师（班级管理分组用）
       c.exam = c.exam || {};
@@ -1386,9 +1398,11 @@ window.App = window.App || {};
     const counted = rec.redCounted || {};
     S.activeStudents(cls).forEach(sid => {
       const st = tagState(cls, sid);
-      // 值日：黄带只累计到第 3 次；第 4 次起「转红即全红」（之后再犯继续累计，删记录按值日规则退）
+      // 值日：黄带只累计到第 3 次；第 4 次起「转红即全红」（之后再犯继续累计，删记录按值日规则退）。
+      // 本节课记下的格子要等下次「开始上课」才揭示显示（dPend 记录还没揭示的次数）
       if (dutyMarked(rec, sid)) {
         st.d += 1;
+        st.dPend = (st.dPend || 0) + 1;
         if (st.d === 4) st.rb = 0;
       }
       // 违纪达标（≥3 项）或当场写过保证书：这节课 +1 档红；当场已经计过的不再重复
@@ -1397,6 +1411,22 @@ window.App = window.App || {};
         st.letter = 1;    // 有红档就有待写保证书（写过后由 lf 记忆挡住，重算不复活）
       }
     });
+  };
+
+  /** 该生的值日整改记录条数（Σ 每条整改记录里原谅的次数；含本节课草稿里的） */
+  function fixCount(cls, sid) {
+    let n = 0;
+    (cls.records || []).forEach(rec => (rec.dutyFixes || []).forEach(f => { if (f && f.sid === sid) n += (f.n || 1); }));
+    if (cls.draft && cls.draft.dutyFixes) cls.draft.dutyFixes.forEach(f => { if (f && f.sid === sid) n += (f.n || 1); });
+    return n;
+  }
+  /** 该生有没有可撤销的整改记录 */
+  TAG.hasFix = function (cls, sid) {
+    if (cls.draft && (cls.draft.dutyFixes || []).some(f => f && f.sid === sid)) return true;
+    for (let i = (cls.records || []).length - 1; i >= 0; i--) {
+      if ((cls.records[i].dutyFixes || []).some(f => f && f.sid === sid)) return true;
+    }
+    return false;
   };
 
   /** 从现有记录里数出该生的值日次数 / 红档事件数（重算用） */
@@ -1426,7 +1456,9 @@ window.App = window.App || {};
         return;
       }
       const cnt = countFromRecords(cls, sid);
-      st.d = Math.max(0, cnt.d - (st.df || 0));
+      // 值日：记录里的值日次数 − 老师整改原谅的次数（df0=旧记忆 + 记录里的整改记录）
+      st.d = Math.max(0, cnt.d - (st.df0 || 0) - fixCount(cls, sid));
+      st.dPend = Math.min(st.dPend || 0, st.d);
       st.r = cnt.r;
       st.letter = cnt.r > (st.lf || 0) ? 1 : 0;
       if ((st.rb || 0) > 4) st.rb = 4;
@@ -1449,8 +1481,72 @@ window.App = window.App || {};
     const list = [];
     if (st.letter) list.push('letterDone');             // 待写保证书：跨课保留，点了才消失
     if (st.d >= 1 && st.d <= 3) list.push('dutyFix');   // 已转红（d≥4）的清不了
+    if (TAG.hasFix(cls, sid)) list.push('dutyUndo');    // 有整改记录可撤销
     if (TAG.totalRed(st) >= 4 && st.rb < 4) list.push('redBack');
     return list;
+  };
+
+  /** 把一次整改写进记录：上课中 → 本节课草稿（随保存入库）；未上课 → 最近一条已落库记录；
+      一条记录都没有 → 退回旧计数记忆 df0。n = 这次整改原谅的值日次数。 */
+  TAG.recordFix = function (cls, sid, n) {
+    const entry = { sid: sid, n: n };
+    if (cls.draft) {
+      const arr = cls.draft.dutyFixes = cls.draft.dutyFixes || [];
+      arr.push(entry);
+      return;
+    }
+    const recs = cls.records || [];
+    const last = recs[recs.length - 1];
+    if (last) {
+      const arr = last.dutyFixes = last.dutyFixes || [];
+      arr.push(entry);
+    } else {
+      const st = tagState(cls, sid);
+      st.df0 = (st.df0 || 0) + n;
+    }
+  };
+
+  /** 撤销该生最近一次整改（从记录里删掉那条），撤销后黄标立即恢复 n 格。返回恢复的次数，没有返回 0。 */
+  TAG.undoFix = function (cls, sid) {
+    let owner = null, arr = null;
+    if (cls.draft && (cls.draft.dutyFixes || []).some(f => f && f.sid === sid)) {
+      owner = cls.draft; arr = cls.draft.dutyFixes;
+    } else {
+      for (let i = (cls.records || []).length - 1; i >= 0 && !arr; i--) {
+        const a = cls.records[i].dutyFixes;
+        if (a && a.some(f => f && f.sid === sid)) { owner = cls.records[i]; arr = a; }
+      }
+    }
+    if (!arr) return 0;
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if (arr[i] && arr[i].sid === sid) {
+        const n = arr[i].n || 1;
+        arr.splice(i, 1);
+        if (owner && !arr.length) delete owner.dutyFixes;
+        const st = tagState(cls, sid);
+        st.d += n;              // 黄标恢复（当作已揭示，上课/开开关就能看到）
+        return n;
+      }
+    }
+    return 0;
+  };
+
+  /** 开始上课时调用：把已累计的值日黄标全部“揭示”（下节课起格子数增长、上课期间自动显示） */
+  TAG.revealDuty = function (cls) {
+    S.activeStudents(cls).forEach(sid => {
+      const st = (cls.tags || {})[String(sid)];
+      if (st) st.dPend = 0;
+    });
+  };
+
+  /** 上课期间是否应该无视色标开关强制显示：
+      ① 红标本节课当场计过档（全红除外）；② 上节课值日积累的黄标（未整改、未转红）。 */
+  TAG.autoShow = function (cls, sid) {
+    if (!cls || !cls.draft) return false;      // 未上课：一切跟开关
+    if (TAG.showNow(cls, sid)) return true;    // 当场计档的红
+    const st = (cls.tags || {})[String(sid)] || { d: 0, r: 0, rb: 0 };
+    const dVis = Math.max(0, st.d - (st.dPend || 0));
+    return dVis >= 1 && dVis <= 3;             // 转红（d≥4）后跟开关
   };
 
   /** 执行按钮动作，成功返回 true */
@@ -1461,8 +1557,12 @@ window.App = window.App || {};
       st.letter = 0; return true;
     }
     if (act === 'dutyFix' && st.d >= 1 && st.d <= 3) {
-      st.df = (st.df || 0) + st.d;          // 记住整改掉几次值日，重算时黄标不复活（再犯从头记）
-      st.d = 0; return true;
+      TAG.recordFix(cls, sid, st.d);        // 整改写进本节课记录（可撤销、随记录删除）
+      st.d = 0; st.dPend = 0;               // 连同还没“揭示”的本节课值日一起原谅
+      return true;
+    }
+    if (act === 'dutyUndo') {
+      return TAG.undoFix(cls, sid) > 0;
     }
     if (act === 'redBack' && TAG.totalRed(st) >= 4 && st.rb < 4) { st.rb++; return true; }
     return false;
@@ -1559,25 +1659,31 @@ window.App = window.App || {};
       // 还没落过库的学生（比如开学第一节课）：当场预览也要能画出来
       st = { d: 0, r: 0, rb: 0 };
     }
-    let red = TAG.shownRed(st);
+    // 值日格子按“已揭示”的次数显示：本节课刚记的要等下次开始上课才显示（dPend）
+    const dVis = Math.max(0, st.d - (st.dPend || 0));
+    const visTotal = st.r + (dVis >= 4 ? dVis : 0);
+    let red = Math.max(0, Math.min(4, visTotal) - st.rb);
     if (plus) red = Math.min(4, red + plus);
-    const yellow = (st.d >= 1 && st.d <= 3) ? st.d : 0;      // 转红后黄带不再显示（记忆保留）
+    const yellow = (dVis >= 1 && dVis <= 3) ? dVis : 0;      // 转红后黄带不再显示（记忆保留）
     if (red <= 0 && yellow <= 0) return '';
     const wR = red / 4;
     const wY = Math.max(0, Math.min(yellow / 4, 1 - wR));    // 红优先占位，黄只补右侧剩余
     const bands = [];
     if (wR > 0) bands.push([TAG_COLOR.red, wR]);
     if (wY > 0) bands.push([TAG_COLOR.yellow, wY]);
-    // 每段之间留 1.5% 的柔和过渡，整体保持淡淡的感觉
+    // 每段之间留 1.5% 的柔和过渡，末尾必须用 transparent 截断，
+    // 否则 CSS 渐变会把最后一个颜色自动铺满整条（“¼黄显示成一整条”就是这个原因）
     let acc = 0;
     const parts = [];
     bands.forEach((b, i) => {
       const from = acc * 100, to = (acc + b[1]) * 100;
+      const isLast = i === bands.length - 1;
       const f = Math.round(from + (i ? 1.5 : 0));
-      const t = Math.round(to - (i < bands.length - 1 ? 1.5 : 0));
+      const t = Math.round(to - ((isLast && to < 100) || !isLast ? 1.5 : 0));
       parts.push(b[0] + ' ' + f + '%', b[0] + ' ' + t + '%');
       acc += b[1];
     });
+    if (acc < 1) parts.push('transparent ' + Math.round(acc * 100) + '%');
     return 'linear-gradient(90deg,' + parts.join(',') + ')';
   };
 

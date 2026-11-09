@@ -76,6 +76,7 @@
       moves: d.moves.slice(),
       redMarked: (d.redMark || []).slice(),   // 本节课当场写过保证书（标红）的学生
       redCounted: Object.assign({}, d.redCounted || {}), // 本节课已当场计档的学生（去重用）
+      dutyFixes: (d.dutyFixes || []).slice(), // 本节课的值日整改记录（可撤销，随记录删除）
       note: d.note || ''
     };
   }
