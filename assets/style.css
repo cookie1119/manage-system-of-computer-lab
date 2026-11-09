@@ -124,17 +124,34 @@ main{padding:12px 16px 40px}
 .sname-btn:hover{color:var(--primary);text-decoration:underline}
 .sname-btn.long-leave{color:var(--primary);font-weight:600}
 .vbtn{
-  flex:0 0 auto;border:1px solid var(--line-strong);background:#f8fafc;color:#94a3b8;
+  flex:0 0 auto;border:1px solid var(--line-strong);background:transparent;color:#94a3b8;
   border-radius:4px;font-size:10px;line-height:15px;height:17px;min-width:20px;padding:0 3px;
 }
 .vbtn:hover{border-color:#64748b;color:#475569}
-.vbtn.has{background:var(--warn);border-color:var(--warn);color:#fff;font-weight:700}
+.vbtn.has{background:transparent;border-color:#e3a3a3;color:#b91c1c;font-weight:700}
 .viol-line{
-  font-size:10px;color:#9a3412;background:#ffedd5;border-radius:3px;padding:0 4px;line-height:14px;
+  font-size:10px;color:var(--danger);font-weight:600;padding:0 2px;line-height:14px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .seat .seatno{font-size:10px;color:#94a3b8}
 .seat .late-min{font-size:10px;font-weight:700;color:var(--warn);white-space:nowrap}
+/* 色标备注：平时只是一个圆圈叹号，悬停才浮出文字（浮层定位在座位卡片上，不撑破网格） */
+.tag-info{
+  flex:0 0 auto;align-self:center;
+  width:14px;height:14px;line-height:12px;text-align:center;
+  border:1px solid #e3a3a3;border-radius:50%;
+  font-size:10px;font-weight:700;color:#b91c1c;background:#fff;cursor:help;
+}
+.tag-info:hover{background:#fdeaea;border-color:#cf7c7c}
+.tag-info::after{
+  content:attr(data-tip);
+  position:absolute;left:2px;right:2px;bottom:calc(100% + 4px);z-index:40;
+  background:#1f2937;color:#fff;border-radius:6px;padding:4px 8px;
+  font-size:11px;font-weight:400;line-height:1.55;text-align:left;
+  opacity:0;visibility:hidden;transition:opacity .12s ease;
+  pointer-events:none;
+}
+.tag-info:hover::after{opacity:1;visibility:visible}
 .s-btns{display:flex;gap:3px}
 .abtn{
   flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;
@@ -432,9 +449,9 @@ table.grid tr.bad td{background:#fffbeb}
 
 /* ===== 第八轮：奖励记录 / 班级按钮一行 / 归档查看 / 宽弹窗 ===== */
 .vbtn.award:hover{border-color:var(--ok);color:#15803d}
-.vbtn.award.has{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:700}
+.vbtn.award.has{background:transparent;border-color:#a7d7b4;color:#15803d;font-weight:700}
 .award-line{
-  font-size:10px;color:#15803d;background:#dcfce7;border-radius:3px;padding:0 4px;line-height:14px;
+  font-size:10px;color:var(--ok);font-weight:600;padding:0 2px;line-height:14px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .pop-item.green{color:var(--ok)}

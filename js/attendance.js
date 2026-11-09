@@ -704,6 +704,8 @@
     // ① 本节课当场计过红档的红（全红除外）；② 上节课值日积累、还没整改的黄标（转红后跟开关）。
     // 用 backgroundImage 叠加，保留座位本身的底色，渐变末端已用 transparent 截断成真实格子宽。
     // 两层色带上下分开：第一层（红）占上半，第二层（黄）占下半，互不遮挡、互不挤压。
+    // 有可见色标时，状态备注收进「圆圈叹号」，鼠标移上去才显示，避免压住色带。
+    let tagTip = '';
     if (A.tagSys) {
       const tagBg = (A.tagSys.autoShow(cls, sid) || S.load().showTags) ? A.tagSys.bg(cls, sid) : '';
       if (tagBg) {
@@ -711,6 +713,7 @@
         node.style.backgroundSize = '100% 50%, 100% 50%';
         node.style.backgroundRepeat = 'no-repeat, no-repeat';
         node.style.backgroundPosition = '0 0, 0 100%';
+        tagTip = A.tagSys.stateText(cls, sid) || '';
       }
     }
 
@@ -724,6 +727,16 @@
     });
     nameBtn.addEventListener('click', e => { e.stopPropagation(); openStudentMenu(nameBtn, cls, sid); });
     top.appendChild(nameBtn);
+
+    // 色标备注：只在鼠标悬停时以浮层显示，平时只占一个圆圈叹号，不压色带
+    if (tagTip) {
+      top.appendChild(U.el('span', {
+        class: 'tag-info',
+        text: '!',
+        'data-tip': tagTip,
+        'aria-label': '色标状态：' + tagTip
+      }));
+    }
 
     const aN = countOf(a.award);
     const aBtn = U.el('button', {
