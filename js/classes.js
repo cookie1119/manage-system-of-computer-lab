@@ -694,6 +694,14 @@
             if (i < 0) return false;
             db.teachers[i] = nv;
             db.classes.forEach(c => { if (String(c.teacher || '').trim() === name) c.teacher = nv; });
+            // 作业模板按“老师|年级-课次”存，改名后跟着搬，别留在旧名字下
+            Object.keys(db.hwTemplates || {}).forEach(k => {
+              const bar = k.indexOf('|');
+              if (bar < 0 || k.slice(0, bar) !== name) return;
+              const nk = nv + k.slice(bar);
+              if (!db.hwTemplates[nk]) db.hwTemplates[nk] = db.hwTemplates[k];
+              delete db.hwTemplates[k];
+            });
             if (db.groupCollapsed[name] !== undefined) { db.groupCollapsed[nv] = db.groupCollapsed[name]; delete db.groupCollapsed[name]; }
             S.save(); render(); U.toast('已改名为 ' + nv, 'ok');
           }

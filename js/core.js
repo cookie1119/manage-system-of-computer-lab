@@ -259,7 +259,7 @@ window.App = window.App || {};
       rooms: defaultRooms(),
       term: { schoolYear: currentSchoolYear(), semester: 1 },
       archive: [],        // 已归档的学期 [{id,schoolYear,semester,at,classes,rooms}]
-      hwTemplates: {},    // 'c1-6' -> 作业要求树（同年级同一次课复用）
+      hwTemplates: {},    // '张老师|c1-6' -> 作业要求树（同一位老师、同年级同一次课才复用）
       lessonTopics: {},   // 'c1-6' -> 本节课课题（同年级同一次课自动沿用）
       finalCfg: {         // 期末总评设置
         weights: { perf: 30, hw: 30, exam: 40 },
@@ -429,6 +429,19 @@ window.App = window.App || {};
       const t = String(c.teacher || '').trim();
       if (t && db.teachers.indexOf(t) < 0) db.teachers.push(t);   // 旧数据里写在班上的老师，收进名单
     });
+    // 作业模板以前是“同年级共用”（键 c1-3），不同老师会串在一起。
+    // 现在改为“同一位老师 + 同一次课”才共用（键 张老师|c1-3）；老键不知道是谁存的：
+    // 账号里只有一位老师就直接归给他，有多位老师则留作“未指定老师”，由老师自己在页面上认领。
+    (function () {
+      const sole = db.teachers.length === 1 ? db.teachers[0] : '';
+      const legacy = Object.keys(db.hwTemplates).filter(k => k.indexOf('|') < 0);
+      legacy.forEach(k => {
+        const v = db.hwTemplates[k];
+        delete db.hwTemplates[k];
+        const nk = sole + '|' + k;
+        if (!db.hwTemplates[nk]) db.hwTemplates[nk] = v;
+      });
+    })();
     // 班级顺序：默认按“年级 → 班级号”，老师手动调过就一直保持他排的顺序
     db.classSortManual = !!db.classSortManual;
     db.showTags = !!db.showTags;                   // 考勤页色标显示开关（下课保存后自动回隐藏）

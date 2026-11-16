@@ -358,9 +358,39 @@
     (node.children || []).forEach(ensureRules);
     return node;
   }
+  /* ---------- 作业要求模板：同一位老师 + 同一次课才共用 ----------
+     模板的“身份”= 任课老师 + 年级 + 第几次课。别的老师带的班，即使年级、课次一样，
+     也不会拿到你的模板（老师各设各的）；换了课次同样要重新设。 */
+  function tplTeacher(cls) {
+    return String((cls && cls.teacher) || '').trim();
+  }
+  function tplTermNo(cls) {
+    return (cls.draft && cls.draft.termNo) || S.nextTermNo(cls);
+  }
   function tplKey(cls) {
-    const no = (cls.draft && cls.draft.termNo) || S.nextTermNo(cls);
-    return A.term.gradeCode(cls.grade) + '-' + no;
+    return tplTeacher(cls) + '|' + A.term.gradeCode(cls.grade) + '-' + tplTermNo(cls);
+  }
+  /** 给人看的归属，例如「张老师 · 初一 · 第 3 次课」 */
+  function tplName(cls) {
+    return (tplTeacher(cls) || '未指定老师') + ' · ' + (cls.grade || '初一') + ' · 第 ' + tplTermNo(cls) + ' 次课';
+  }
+  /** 以前“同年级共用”那批模板没有记老师（键以 | 开头），列出来让老师认领 */
+  function tplOrphans(db) {
+    return Object.keys(db.hwTemplates || {}).filter(k => k.indexOf('|') === 0);
+  }
+  /** 把“没记老师”的旧模板归到当前班级的任课老师名下（只认领，不删数据） */
+  function adoptTpl(cls) {
+    const db = S.load();
+    const t = tplTeacher(cls);
+    if (!t) { U.toast('这个班还没设任课老师，先到“班级管理”里选老师', 'err'); return; }
+    let n = 0;
+    tplOrphans(db).forEach(k => {
+      const nk = t + k;                       // '|c1-3' → '张老师|c1-3'
+      if (!db.hwTemplates[nk]) { db.hwTemplates[nk] = db.hwTemplates[k]; n++; }
+      delete db.hwTemplates[k];
+    });
+    S.save(); render();
+    U.toast('已把 ' + n + ' 个旧模板归到「' + t + '」名下', 'ok');
   }
 
   /* ---------- 页面 ---------- */
@@ -371,14 +401,14 @@
     root.innerHTML = '';
     (cls.homeworkReq || []).forEach(ensureRules);
 
-    // 同年级同一次课自动套模板
+    // 同一位老师、同年级、同一次课：自动套用上次存的要求
     const key = tplKey(cls);
     const db = S.load();
     if (!cls.homeworkReq.length && db.hwTemplates[key]) {
       cls.homeworkReq = JSON.parse(JSON.stringify(db.hwTemplates[key]));
       cls.homeworkReq.forEach(ensureRules);
       S.save();
-      U.toast('已套用同年级第 ' + key.split('-')[1] + ' 次课的作业要求模板', 'ok');
+      U.toast('已套用「' + tplName(cls) + '」的作业要求模板', 'ok');
     }
 
     root.appendChild(reqCard(cls, key));
@@ -419,26 +449,38 @@
       U.el('button', { class: 'btn sm', text: '+ 文件', onclick: () => { cls.homeworkReq.push(newNode('file')); S.save(); render(); } }),
       U.el('button', { class: 'btn sm', text: '+ 文件夹', onclick: () => { cls.homeworkReq.push(newNode('dir')); S.save(); render(); } }),
       U.el('button', {
-        class: 'btn sm ghost', text: '存为同年级模板',
+        class: 'btn sm ghost', text: '存为模板',
         onclick: () => {
           db.hwTemplates[key] = JSON.parse(JSON.stringify(cls.homeworkReq));
-          S.save(); U.toast('已保存：同年级其他班第 ' + termNo + ' 次课会自动套用', 'ok');
+          S.save(); U.toast('已保存：你（' + tplTeacher(cls) + '）教的同年级其他班上第 ' + termNo + ' 次课会自动套用', 'ok');
         }
       }),
       U.el('button', {
         class: 'btn sm ghost', text: '套用模板',
         onclick: () => {
           const t = db.hwTemplates[key];
-          if (!t || !t.length) { U.toast('同年级第 ' + termNo + ' 次课还没有保存过模板', 'err'); return; }
+          if (!t || !t.length) { U.toast('「' + tplName(cls) + '」还没有保存过模板；别的老师存的模板不通用', 'err'); return; }
           cls.homeworkReq = JSON.parse(JSON.stringify(t));
           cls.homeworkReq.forEach(ensureRules);
-          S.save(); render(); U.toast('已套用模板', 'ok');
+          S.save(); render(); U.toast('已套用「' + tplName(cls) + '」的模板', 'ok');
         }
       })
     ]));
     card.appendChild(U.el('div', { class: 'small muted', style: { margin: '4px 0 10px' }, html:
-      cls.name + '（' + (cls.grade || '初一') + '）· 模板编号 <b>' + key + '</b>' + (db.hwTemplates[key] ? '（已保存）' : '（未保存）') +
-      ' —— 同年级其他班上同一次课自动套用；保存本节课后要求会清空，下节课重新设置。' }));
+      cls.name + '（' + (cls.grade || '初一') + '）· 模板归属 <b>' + tplName(cls) + '</b>' + (db.hwTemplates[key] ? '（已保存）' : '（未保存）') +
+      ' —— 模板按“老师 + 年级 + 课次”认，只有你自己教的、同年级的班上到第 ' + termNo + ' 次课才自动套用；<b>别的老师要自己设</b>；保存本节课后要求会清空，下节课重新设置。' }));
+
+    // 以前“同年级共用”的旧模板没记老师：让当前老师一键认领，避免模板白白失效
+    const orphans = tplOrphans(db);
+    if (orphans.length && cls.teacher) {
+      card.appendChild(U.el('div', { style: { margin: '-6px 0 10px' } }, [
+        U.el('button', {
+          class: 'btn sm ghost', text: '认领旧模板（' + orphans.length + ' 个）',
+          title: '以前存的模板没记老师，归到「' + cls.teacher + '」名下后，同一位老师的同一次课就能自动套用',
+          onclick: () => adoptTpl(cls)
+        })
+      ]));
+    }
 
     if (!cls.homeworkReq.length) {
       card.appendChild(U.el('div', { class: 'muted small', style: { marginBottom: '8px' }, text: '还没有要求。点“+ 文件 / + 文件夹”添加；不设置也能统计谁交了、谁没交（空文件夹算缺交）。' }));
