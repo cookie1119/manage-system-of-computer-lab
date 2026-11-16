@@ -18,9 +18,17 @@
     const active = S.activeStudents(cls);
     const lateList = st.late.map(sid => {
       const a = d.att[sid] || {};
-      return { sid: sid, min: a.lateMin || (a.lateStart ? Math.max(0, Math.round((Date.now() - a.lateStart) / 60000)) : 0) };
+      const o = { sid: sid, min: a.lateMin || (a.lateStart ? Math.max(0, Math.round((Date.now() - a.lateStart) / 60000)) : 0) };
+      if (a.lateReason) o.reason = a.lateReason;      // 迟到原因（老师可填可不填）
+      if (a.lateExempt) o.exempt = true;              // 这次迟到不扣分
+      return o;
     });
-    const leaveList = st.leave.map(sid => ({ sid: sid, type: (d.att[sid] || {}).leave || 'q' }));
+    const leaveList = st.leave.map(sid => {
+      const a = d.att[sid] || {};
+      const o = { sid: sid, type: a.leave || 'q' };
+      if (o.type === 'q' && a.leaveText) o.text = a.leaveText;   // 请“其他”时写的具体原因
+      return o;
+    });
     // 早退（有故 ok / 无故 bad）
     const earlyList = active.filter(sid => d.att[sid] && d.att[sid].status === 'early')
       .map(sid => ({ sid: sid, reason: d.att[sid].early === 'bad' ? 'bad' : 'ok' }));
@@ -305,12 +313,34 @@
           });
           tag.appendChild(inp);
           tag.appendChild(U.el('span', { text: '分' }));
+          // 迟到原因 + 是否扣分（和考勤页的气泡对应，这里可以直接改）
+          tag.appendChild(U.el('input', {
+            class: 'mini-input', style: { width: '76px' }, placeholder: '原因', value: it.reason || '',
+            oninput: e => { it.reason = e.target.value.trim(); }
+          }));
+          tag.appendChild(U.el('label', { class: 'mini-check', title: '勾上 = 这次迟到不扣课堂表现分' }, [
+            U.el('input', {
+              type: 'checkbox', checked: it.exempt ? 'checked' : null,
+              onchange: e => { it.exempt = !!e.target.checked; }
+            }),
+            U.el('span', { text: '不扣分' })
+          ]));
         }
         if (kind === 'leave') {
           tag.appendChild(U.el('select', {
             class: 'mini-sel',
-            onchange: e => { it.type = e.target.value; }
+            onchange: e => {
+              it.type = e.target.value;
+              if (it.type !== 'q') delete it.text;
+              refresh();      // “其他”要跟着出现填写框
+            }
           }, ['w', 'x', 'q'].map(v => U.el('option', { value: v, text: LEAVE_TEXT[v], selected: it.type === v ? 'selected' : null }))));
+          if (it.type === 'q') {
+            tag.appendChild(U.el('input', {
+              class: 'mini-input', style: { width: '96px' }, placeholder: '具体原因', value: it.text || '',
+              oninput: e => { it.text = e.target.value.trim(); }
+            }));
+          }
         }
         if (kind === 'early') {
           tag.appendChild(U.el('select', {
@@ -607,9 +637,14 @@
           dd.att = {};
           if (cls.longLeave) cls.longLeave.forEach(sid => { dd.att[sid] = { status: 'leave', leave: 'w' }; });
           r.absent.forEach(sid => { dd.att[sid] = { status: 'absent' }; });
-          r.late.forEach(l => { dd.att[l.sid] = { status: 'late', lateMin: l.min || 0, timing: false }; });
+          r.late.forEach(l => {
+            dd.att[l.sid] = {
+              status: 'late', lateMin: l.min || 0, timing: false,
+              lateReason: l.reason || '', lateExempt: !!l.exempt
+            };
+          });
           r.early.forEach(e => { dd.att[e.sid] = { status: 'early', early: e.reason === 'bad' ? 'bad' : 'ok' }; });
-          r.leave.forEach(l => { dd.att[l.sid] = { status: 'leave', leave: l.type }; });
+          r.leave.forEach(l => { dd.att[l.sid] = { status: 'leave', leave: l.type, leaveText: l.text || '' }; });
           r.violations.forEach(v => { dd.att[v.sid] = Object.assign(dd.att[v.sid] || { status: 'present' }, { viol: v.list }); });
           r.awards.forEach(v => { dd.att[v.sid] = Object.assign(dd.att[v.sid] || { status: 'present' }, { award: v.list }); });
           if (dd.homework) dd.homework.missing = r.missing.map(sid => ({ sid: sid, seat: SE.seatOfStudent(cls, sid) }));
@@ -691,7 +726,8 @@
         r.absent.length ? r.absent.map(sid => stu(sid)) : [none()]);
 
       line('迟到 ' + r.late.length, r.late.length ? 'warn' : 'grey',
-        r.late.length ? r.late.map(l => stu(l.sid, (l.min || 0) + ' 分', 'warn')) : [none()]);
+        r.late.length ? r.late.map(l => stu(l.sid,
+          (l.min || 0) + ' 分' + (l.reason ? '·' + l.reason : '') + (l.exempt ? '（不扣分）' : ''), 'warn')) : [none()]);
 
       /* 早退：一栏里，名字后面直接标有故 / 无故 */
       const early = r.early || [];
@@ -701,7 +737,7 @@
           : [none()]);
 
       line('请假 ' + r.leave.length, r.leave.length ? 'blue' : 'grey',
-        r.leave.length ? r.leave.map(l => stu(l.sid, '（' + (LEAVE_TEXT[l.type] || '其他') + '）', 'blue')) : [none()]);
+        r.leave.length ? r.leave.map(l => stu(l.sid, '（' + (l.text || LEAVE_TEXT[l.type] || '其他') + '）', 'blue')) : [none()]);
 
       /* 作业：只给汇总，点“查看详情”开小窗口看名单和饼图 */
       const hwList = r.hwStatus || [];
@@ -952,9 +988,11 @@
       q(sid), q(SE.name(cls, sid) || ''), q(status), q(note || '')
     ].join(','));
     r.absent.forEach(sid => push(sid, '缺勤', ''));
-    r.late.forEach(l => push(l.sid, '迟到', (l.min || 0) + '分钟'));
+    r.late.forEach(l => push(l.sid, '迟到', (l.min || 0) + '分钟'
+      + (l.reason ? '，原因：' + l.reason : '')
+      + (l.exempt ? '（不扣分）' : '')));
     (r.early || []).forEach(e => push(e.sid, '早退', e.reason === 'bad' ? '无故' : '有故'));
-    r.leave.forEach(l => push(l.sid, '请假', LEAVE_TEXT[l.type] || '其他'));
+    r.leave.forEach(l => push(l.sid, '请假', l.text || LEAVE_TEXT[l.type] || '其他'));
     r.missing.forEach(sid => push(sid, '缺交作业', ''));
     (r.violations || []).forEach(v => push(v.sid, '违纪', V.violText(v.list)));
     (r.awards || []).forEach(v => push(v.sid, '奖励', V.awardText(v.list)));

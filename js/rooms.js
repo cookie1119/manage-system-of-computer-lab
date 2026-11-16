@@ -193,9 +193,10 @@
     } else {
       const today = U.today();
       const tb = U.el('tbody', {}, list.map(b => {
-        const state = (b.from && b.from > today) ? '未开始'
-          : (b.to && b.to < today) ? '已结束'
-            : '进行中';
+        const state = b.off ? '已结束'
+          : (b.from && b.from > today) ? '未开始'
+            : (b.to && b.to < today) ? '已结束'
+              : '进行中';
         return U.el('tr', {}, [
           U.el('td', { class: 'nowrap', text: b.seat }),
           U.el('td', { class: 'nowrap', text: (b.from || '不限') + ' → ' + (b.to || '至今') }),
@@ -204,10 +205,13 @@
             U.el('button', {
               style: { marginLeft: '6px', padding: '1px 6px' },
               class: 'btn sm danger', text: '删除',
+              title: '从历史里彻底删掉这条记录（只是想让电脑恢复可用，请到考勤页点“取消电脑不可用”，记录会留档）',
               onclick: () => {
-                room.broken = room.broken.filter(x => x !== b);
-                syncAll(); render();
-                U.toast('已删除记录' + (state === '进行中' ? '，该座位恢复可用' : ''), 'ok');
+                U.confirm('要从历史里彻底删除 ' + b.seat + ' 这条不可用记录吗？\n（只是让电脑恢复可用的话，不用删，取消标记会自动写上结束日期并留档）', () => {
+                  room.broken = room.broken.filter(x => x !== b);
+                  syncAll(); render();
+                  U.toast('已删除这条历史记录', 'ok');
+                });
               }
             })
           ])
@@ -262,7 +266,7 @@
           U.el('div', { class: 'field' }, [U.el('label', { text: '从哪天开始' }), fromInput]),
           U.el('div', { class: 'field' }, [U.el('label', { text: '到哪天（留空 = 一直到现在）' }), toInput])
         ]),
-        U.el('div', { class: 'small muted', style: { marginTop: '8px' }, text: '填了结束日期的，到期后系统自动把这台电脑恢复为可用。' })
+        U.el('div', { class: 'small muted', style: { marginTop: '8px' }, text: '填了结束日期的，到期后系统自动把这台电脑恢复为可用。登记过的时间段都会留档：在考勤页取消“电脑不可用”时只写结束日期，不会删掉记录。' })
       ]),
       buttons: [
         { label: '取消' },
@@ -272,8 +276,11 @@
             const from = fromInput.value || '';
             const to = toInput.value || '';
             if (to && from && to < from) { U.toast('结束日期不能早于起始日期', 'err'); return false; }
-            room.broken = (room.broken || []).filter(b => b.seat !== seat);
-            room.broken.push({ seat: seat, from: from, to: to });
+            room.broken = room.broken || [];
+            // 这个座位要是正有一条“进行中”的记录，就当作是在修正它；否则再追加一条新的时间段（保留旧历史）
+            const active = room.broken.find(b => b.seat === seat && !b.off && (!b.to || b.to >= U.today()));
+            if (active) { active.from = from; active.to = to; }
+            else room.broken.push({ seat: seat, from: from, to: to });
             syncAll(); render();
             U.toast(seat + ' 已登记为不可用（' + (from || '不限') + ' 至 ' + (to || '至今') + '）', 'ok');
           }

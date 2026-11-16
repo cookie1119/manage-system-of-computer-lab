@@ -33,6 +33,8 @@
         if ((r.leave || []).some(l => (typeof l === 'object' ? l.sid : l) === sid)) leaveN++;
         (r.late || []).forEach(l => {
           if (l.sid !== sid) return;
+          // 老师标记了“本次不扣分”的（如老师找、校医），只记次数不扣分
+          if (l.exempt) { pLog.push('第' + no + '次迟到' + (l.min || 0) + '分（不扣分' + (l.reason ? '·' + l.reason : '') + '）'); return; }
           const m = Math.min(l.min || 0, 5);
           perf -= m; pLog.push('第' + no + '次迟到' + (l.min || 0) + '分 -' + m);
         });

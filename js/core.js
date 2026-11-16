@@ -589,20 +589,30 @@ window.App = window.App || {};
     const d = date || U.today();
     return (room.broken || []).some(b => {
       if (b.seat !== seat) return false;
+      // 已取消/已修好的记录：从结束那天起不再算数，但结束之前的日子仍然算不可用（历史可查）
+      if (b.off && b.to && d >= b.to) return false;
       if (b.from && b.from > d) return false;      // 还没开始
       if (b.to && b.to < d) return false;          // 已经修好
       return true;
     });
   };
+  /** 标记 / 取消某个座位的“电脑不可用”
+      取消时**不删记录**：把结束日期写上、并标记 off（已结束），这样不可用时间段留档可查。 */
   R.setBroken = function (room, seat, on, date) {
     if (!room) return;
+    const d = date || U.today();
     room.broken = room.broken || [];
     if (on) {
-      if (!room.broken.some(b => b.seat === seat && (!b.to || b.to >= (date || U.today())))) {
-        room.broken.push({ seat: seat, from: date || U.today(), to: '' });
-      }
+      const active = room.broken.some(b => b.seat === seat && !b.off && (!b.to || b.to >= d));
+      if (!active) room.broken.push({ seat: seat, from: d, to: '' });
     } else {
-      room.broken = room.broken.filter(b => b.seat !== seat);
+      room.broken.forEach(b => {
+        if (b.seat !== seat || b.off) return;
+        if (b.from && b.from > d) return;      // 还没生效的那条不动
+        if (b.to && b.to < d) return;          // 早就结束的不动
+        b.to = d;                              // 结束日期 = 今天
+        b.off = true;
+      });
     }
     S.save();
   };

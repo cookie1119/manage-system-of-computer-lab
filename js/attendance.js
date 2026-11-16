@@ -8,15 +8,17 @@
 
   const ACT = {
     absent: { text: '缺勤', tip: '缺勤（再点一次取消）' },
-    late: { text: '迟到', tip: '迟到：第1次开始计时，第2次到达停表，第3次取消' },
+    late: { text: '迟到', tip: '迟到：第1次开始计时，第2次停表并弹出“原因/是否扣分”，停表后再点可修改或取消' },
     early: { text: '早退', tip: '早退：第1次有故（绿），第2次无故（红），第3次取消' },
     w: { text: '未回校', tip: '请假 · 未回校（再点一次取消）' },
     x: { text: '校医', tip: '请假 · 校医（再点一次取消）' },
-    q: { text: '其他', tip: '请假 · 其他原因（再点一次取消）' }
+    q: { text: '其他', tip: '请假 · 其他原因（点开填写具体内容）' }
   };
   const VIOL_TYPES = ['讲话', '换位', '走动', '脱控', '无关', '值日', '其他'];
   const AWARD_TYPES = ['回答', '助人', '纪律', '值日', '其他'];
   const LEAVE_TEXT = { w: '未回校', x: '校医', q: '其他' };
+  // 迟到原因的常用预选项（点一下就填上，也可以自己写）
+  const LATE_REASONS = ['老师找', '找老师', '校医', '洗手间', '管乐', '打电话'];
 
   /* ---------- 课时草稿 ---------- */
   function ensureDraft(cls, auto) {
@@ -73,7 +75,9 @@
   }
   function resetAtt(a) {
     a.status = 'present';
-    delete a.leave; delete a.lateStart; delete a.lateMin; delete a.early;
+    delete a.leave; delete a.leaveText;
+    delete a.lateStart; delete a.lateMin; delete a.lateReason; delete a.lateExempt;
+    delete a.early;
     a.timing = false;
   }
   function lateMinutes(a) {
@@ -244,7 +248,7 @@
   }
 
   /* 点格内按钮 */
-  function clickAct(cls, sid, act) {
+  function clickAct(cls, sid, act, opts) {
     if (!cls.draft) { U.toast('请先点“开始上课”，再标记出勤', 'err'); return; }
     ensureDraft(cls, true);
     const a = attOf(cls, sid);
@@ -263,9 +267,123 @@
       else { resetAtt(a); a.status = 'leave'; a.leave = act; }
     }
     S.save();
-    refresh();
+    // 停表那一刻先别重画：重画会让按钮从页面上摘掉，气泡就找不到锚点了
+    if (!(opts && opts.noRefresh)) refresh();
   }
   V.clickAct = clickAct;
+
+  /* ---------- 迟到原因气泡（停表后自动弹出，点一下旁边就填） ---------- */
+  function openLateMenu(anchor, cls, sid) {
+    const a = attOf(cls, sid);
+    let picked = a.lateReason && LATE_REASONS.indexOf(a.lateReason) >= 0 ? a.lateReason : '';
+    let exempt = !!a.lateExempt;
+
+    const chips = U.el('div', { class: 'pop-chips' });
+    const score = U.el('div', { class: 'pop-chips' });
+    const custom = U.el('input', {
+      class: 'input pop-input', maxlength: '20',
+      placeholder: '其他原因（写这里也可以）',
+      value: a.lateReason && LATE_REASONS.indexOf(a.lateReason) < 0 ? a.lateReason : ''
+    });
+
+    function paint() {
+      chips.innerHTML = '';
+      LATE_REASONS.forEach(r => {
+        const on = picked === r;
+        chips.appendChild(U.el('button', {
+          type: 'button', class: 'pop-chip' + (on ? ' on' : ''), text: r,
+          onclick: () => { picked = on ? '' : r; if (!on) custom.value = ''; paint(); }
+        }));
+      });
+      score.innerHTML = '';
+      [{ t: '扣分', v: false }, { t: '不扣分', v: true }].forEach(o => {
+        score.appendChild(U.el('button', {
+          type: 'button', class: 'pop-chip' + (exempt === o.v ? ' ok' : ''), text: o.t,
+          onclick: () => { exempt = o.v; paint(); }
+        }));
+      });
+    }
+    paint();
+
+    function save() {
+      const reason = custom.value.trim() || picked;
+      a.lateReason = reason;
+      a.lateExempt = !!exempt;
+      S.save(); U.closePopover(); refresh();
+      U.toast(sid + '号 ' + (SE.name(cls, sid) || '') + ' 迟到 ' + (a.lateMin || 0) + ' 分钟'
+        + (reason ? '（' + reason + '）' : '') + (exempt ? ' · 本次不扣分' : ''), 'ok');
+    }
+
+    U.popover(anchor, {
+      title: sid + '号 ' + (SE.name(cls, sid) || '') + ' · 迟到 ' + lateMinutes(a) + ' 分钟',
+      list: (a.status === 'late' && !a.timing) ? [{
+        label: '取消这次迟到', cls: 'danger',
+        on: () => { resetAtt(a); S.save(); refresh(); U.toast('已取消迟到标记', 'ok'); }
+      }] : [],
+      focus: false,
+      node: U.el('div', { class: 'pop-form' }, [
+        U.el('div', { class: 'pop-label', text: '迟到原因' }),
+        chips,
+        custom,
+        U.el('div', { class: 'pop-label', text: '这次迟到是否扣分' }),
+        score,
+        U.el('div', { class: 'pop-actions' }, [
+          U.el('button', { type: 'button', class: 'btn sm', text: '先不填', onclick: () => U.closePopover() }),
+          U.el('button', { type: 'button', class: 'btn sm primary', text: '保存', onclick: save })
+        ])
+      ])
+    });
+    setTimeout(() => { try { custom.focus(); } catch (e) { } }, 0);
+  }
+  V.openLateMenu = openLateMenu;
+
+  /* ---------- 请假「其他」：点开就填具体原因 ---------- */
+  function openLeaveOther(anchor, cls, sid) {
+    if (!cls.draft) { U.toast('请先点“开始上课”，再标记请假', 'err'); return; }
+    ensureDraft(cls, true);
+    const a = attOf(cls, sid);
+    const isQ = a.status === 'leave' && a.leave === 'q';
+    const inp = U.el('input', {
+      class: 'input pop-input', maxlength: '30',
+      placeholder: '请假的具体原因，如：家长接走 / 参加比赛',
+      value: isQ ? (a.leaveText || '') : ''
+    });
+
+    function save() {
+      const v = inp.value.trim();
+      if (!v) { U.toast('请填写具体原因', 'err'); return; }
+      resetAtt(a);
+      a.status = 'leave'; a.leave = 'q'; a.leaveText = v;
+      S.save(); U.closePopover(); refresh();
+      U.toast(sid + '号 ' + (SE.name(cls, sid) || '') + '：请假（' + v + '）', 'ok');
+    }
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); save(); }
+      e.stopPropagation();
+    });
+
+    const list = [];
+    if (isQ) {
+      list.push({
+        label: '取消这次请假', cls: 'danger',
+        on: () => { resetAtt(a); S.save(); refresh(); U.toast('已取消请假', 'ok'); }
+      });
+    }
+    U.popover(anchor, {
+      title: sid + '号 ' + (SE.name(cls, sid) || '') + ' · 请假（其他原因）',
+      list: list,
+      focus: false,
+      node: U.el('div', { class: 'pop-form' }, [
+        inp,
+        U.el('div', { class: 'pop-actions' }, [
+          U.el('button', { type: 'button', class: 'btn sm', text: '取消', onclick: () => U.closePopover() }),
+          U.el('button', { type: 'button', class: 'btn sm primary', text: '确定', onclick: save })
+        ])
+      ])
+    });
+    setTimeout(() => { try { inp.focus(); } catch (e) { } }, 0);
+  }
+  V.openLeaveOther = openLeaveOther;
 
   /* ---------- 违纪（每一项同样可以叠加次数） ---------- */
   /** 违纪菜单：“其他”直接在菜单里填，不用先点“其他”再弹框 */
@@ -765,7 +883,13 @@
     top.appendChild(vBtn);
 
     if (st === 'late') {
-      top.appendChild(U.el('span', { class: 'late-min', text: (a.timing ? '⏱' : '') + lateMinutes(a) + '分' }));
+      top.appendChild(U.el('span', {
+        class: 'late-min',
+        text: (a.timing ? '⏱' : '') + lateMinutes(a) + '分' + (a.lateExempt ? '·免' : ''),
+        title: '迟到' + lateMinutes(a) + '分钟'
+          + (a.lateReason ? '　原因：' + a.lateReason : '')
+          + (a.lateExempt ? '　本次不扣分' : '')
+      }));
     } else {
       top.appendChild(U.el('span', { class: 'seatno', text: seatId }));
     }
@@ -804,7 +928,24 @@
       class: 'abtn' + (on ? ' on ' + color : ''),
       text: cfg.text, title: cfg.tip, 'data-act': act
     });
-    b.addEventListener('click', e => { e.stopPropagation(); clickAct(cls, sid, act); });
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      // 请假「其他」：点开就填具体原因（气泡弹窗），不再只是打个“其他”标签
+      if (act === 'q') { openLeaveOther(b, cls, sid); return; }
+      if (act === 'late') {
+        const a0 = attOf(cls, sid);
+        // 已经停过表：再点就是“修改原因 / 取消这次迟到”，不再直接清掉
+        if (a0.status === 'late' && !a0.timing) { openLateMenu(b, cls, sid); return; }
+        // 第二次点击 = 停表，紧接着自动弹出原因气泡（先不重画，气泡才找得到锚点）
+        if (a0.status === 'late' && a0.timing) {
+          clickAct(cls, sid, act, { noRefresh: true });
+          openLateMenu(b, cls, sid);
+          refresh();
+          return;
+        }
+      }
+      clickAct(cls, sid, act);
+    });
     return b;
   }
 
@@ -981,7 +1122,11 @@
     block('迟到（' + st.late.length + '）', st.late.length
       ? U.el('div', { class: 'name-list' }, st.late.map(sid => {
         const a = (cls.draft.att[sid] || {});
-        return U.el('span', { class: 'name-tag warn', text: sid + ' ' + (SE.name(cls, sid) || '') + ' · ' + lateMinutes(a) + '分' });
+        const extra = (a.lateReason ? ' · ' + a.lateReason : '') + (a.lateExempt ? '（不扣分）' : '');
+        return U.el('span', {
+          class: 'name-tag warn',
+          text: sid + ' ' + (SE.name(cls, sid) || '') + ' · ' + lateMinutes(a) + '分' + extra
+        });
       }))
       : U.el('div', { class: 'muted small', text: '无' }));
     block('早退 · 有故（' + st.earlyOk.length + '）', nameTags(cls, st.earlyOk, 'green'));
@@ -989,7 +1134,10 @@
     block('请假（' + st.leave.length + '）', st.leave.length
       ? U.el('div', { class: 'name-list' }, st.leave.map(sid => {
         const a = (cls.draft.att[sid] || {});
-        return U.el('span', { class: 'name-tag blue', text: sid + ' ' + (SE.name(cls, sid) || '') + ' · ' + (LEAVE_TEXT[a.leave] || '') });
+        return U.el('span', {
+          class: 'name-tag blue',
+          text: sid + ' ' + (SE.name(cls, sid) || '') + ' · ' + (a.leaveText || LEAVE_TEXT[a.leave] || '')
+        });
       }))
       : U.el('div', { class: 'muted small', text: '无' }));
     block('违纪（' + st.viol.length + '人）', st.viol.length

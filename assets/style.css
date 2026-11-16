@@ -526,3 +526,19 @@ body.gated .topbar,body.gated #main{display:none !important}
 
 /* ===== 页面版本号（确认有没有拿到新缓存）===== */
 .ver{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;margin-right:4px}
+
+/* ===== 气泡里的小表单：迟到原因 / 请假其他（第十轮） ===== */
+.pop-form{padding:0 4px 2px}
+.pop-form .pop-label{font-size:11px;color:var(--muted);margin:6px 0 4px}
+.pop-chips{display:flex;flex-wrap:wrap;gap:4px;max-width:236px}
+.pop-chip{
+  border:1px solid var(--line-strong);background:#fff;color:#475569;border-radius:999px;
+  font-size:12px;line-height:1;padding:4px 9px;cursor:pointer;font-family:inherit;
+}
+.pop-chip:hover{border-color:var(--primary);color:var(--primary)}
+.pop-chip.on{background:var(--primary-soft);border-color:var(--primary);color:var(--primary);font-weight:600}
+.pop-chip.ok{background:#dcfce7;border-color:#86efac;color:#15803d;font-weight:600}
+.pop-form input.pop-input{width:100%;margin-top:6px;font-size:12px}
+.pop-actions{display:flex;gap:6px;justify-content:flex-end;margin-top:8px}
+.mini-check{display:inline-flex;align-items:center;gap:2px;font-size:11px;color:var(--muted);margin-left:4px;cursor:pointer}
+.mini-check input{margin:0;width:12px;height:12px}
