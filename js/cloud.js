@@ -52,7 +52,7 @@
     if (!right || bar || !C.enabled) return;
     bar = document.createElement('span');
     bar.className = 'cloud-bar';
-    bar.title = '云端账号：' + ((session && session.user && session.user.email) || '');
+    bar.title = '云端账号：' + showAccount((session && session.user && session.user.email) || '');
     bar.innerHTML = '<i class="dot"></i><span class="who">已连接云端</span>' +
       '<button class="btn ghost sm" id="btnPwd" type="button">改密码</button>' +
       '<button class="btn ghost sm" id="btnSignOut" type="button">退出</button>';
@@ -68,6 +68,27 @@
   };
 
   /* ---------------- 登录门禁 ---------------- */
+  const ACCOUNT_DOMAIN = 'itlab.local';
+  /** 登录框里可以填 邮箱 / 手机号 / 用户名：
+      - 带 @ 的当邮箱原样用；
+      - 11 位手机号、以及任意用户名，都内部转成 xxx@itlab.local 交给云端（不用真邮箱，也不用短信验证）；
+      只做本地映射，不联网，用户名统一转小写、去掉空格。 */
+  function accountToEmail(v) {
+    const s = String(v === undefined || v === null ? '' : v).trim();
+    if (!s) return '';
+    if (s.indexOf('@') >= 0) return s;
+    if (/^1\d{10}$/.test(s)) return s + '@' + ACCOUNT_DOMAIN;
+    return s.replace(/\s+/g, '').toLowerCase() + '@' + ACCOUNT_DOMAIN;
+  }
+  C.accountToEmail = accountToEmail;
+  /** 显示用的账号名：内部映射的地址只显示前半截（手机号 / 用户名） */
+  function showAccount(email) {
+    const s = String(email || '');
+    const tail = '@' + ACCOUNT_DOMAIN;
+    return s.slice(-tail.length) === tail ? s.slice(0, -tail.length) : s;
+  }
+  C.showAccount = showAccount;
+
   function showGate(resolve) {
     document.body.classList.add('gated');
     const gate = document.createElement('div');
@@ -76,13 +97,15 @@
       '<div class="gate-card">' +
         '<div class="gate-brand"><span class="logo">IT</span>机房课堂管理</div>' +
         '<p class="gate-tip">请用老师的账号登录。数据存在云端，换设备登录同一个账号就能看到。</p>' +
-        '<label class="gate-label">邮箱<input type="email" id="gateEmail" autocomplete="username" placeholder="you@example.com"></label>' +
+        '<label class="gate-label">账号<input type="text" id="gateEmail" autocomplete="username" placeholder="邮箱 / 手机号 / 用户名"></label>' +
         '<label class="gate-label">密码<input type="password" id="gatePwd" autocomplete="current-password" placeholder="至少 6 位"></label>' +
         '<div class="gate-msg" id="gateMsg"></div>' +
         '<div class="gate-actions">' +
           '<button class="btn primary" id="gateLogin" type="button">登录</button>' +
           '<button class="btn ghost" id="gateReg" type="button">注册新账号</button>' +
         '</div>' +
+        '<p class="gate-tip gate-note">填手机号或用户名也行，不用邮箱、不收短信，记住自己填的那个就行。' +
+        '以前用邮箱注册的账号，还是填原来的邮箱。</p>' +
       '</div>';
     document.body.appendChild(gate);
 
@@ -98,25 +121,32 @@
     }
 
     async function doLogin() {
-      const email = emailEl.value.trim();
+      const account = emailEl.value.trim();
       const pwd = pwdEl.value;
-      if (!email || !pwd) { msg('邮箱和密码都要填', 'err'); return; }
+      if (!account || !pwd) { msg('账号和密码都要填', 'err'); return; }
       msg('登录中…');
-      const { data, error } = await sb.auth.signInWithPassword({ email: email, password: pwd });
+      const { data, error } = await sb.auth.signInWithPassword({ email: accountToEmail(account), password: pwd });
       if (error) { msg(friendly(error), 'err'); return; }
       session = data.session;
       pass();
     }
 
     async function doReg() {
-      const email = emailEl.value.trim();
+      const account = emailEl.value.trim();
       const pwd = pwdEl.value;
-      if (!email || !pwd) { msg('邮箱和密码都要填', 'err'); return; }
+      if (!account || !pwd) { msg('账号和密码都要填', 'err'); return; }
       if (pwd.length < 6) { msg('密码至少 6 位', 'err'); return; }
+      const email = accountToEmail(account);
+      if (!/@[^@]+\.[^@]+$/.test(email)) { msg('账号格式不对：填邮箱、手机号或用户名都行', 'err'); return; }
       msg('正在注册…');
       const { data, error } = await sb.auth.signUp({ email: email, password: pwd });
       if (error) { msg(friendly(error), 'err'); return; }
-      if (data.session) { session = data.session; pass(); return; }
+      if (data.session) {
+        session = data.session;
+        if (email !== account) U.toast('账号已建好：以后用「' + showAccount(email) + '」+ 密码登录', 'ok');
+        pass();
+        return;
+      }
       msg('注册成功。项目还开着“邮箱验证”，请先去邮箱点验证链接，或到 Supabase 后台关掉邮箱验证再登录。', 'ok');
     }
 
